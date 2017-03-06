@@ -151,13 +151,13 @@ def get_distance(a, b):
     
     return np.sqrt(np.sum((a - b ) ** 2, 1))
 
-def connected_with_soma(point, soma_coords, thrd_soma):
+def connected_with_soma(point, soma_coords, threshold):
     
     """
     Check if a point is connected with soma. 
     """
     
-    if np.min(get_distance(point, soma_coords)) < thrd_soma:
+    if np.min(get_distance(point, soma_coords)) < threshold:
         return True
     else:
         return False
@@ -211,34 +211,6 @@ def get_pair_distance_from_multiple_points_to_one_paths(target_path, all_paths):
     
     return pair_distance
 
-# def get_all_connected_paths(target_path_id, df, all_paths, threshold):
-#     """
-#     To Do
-#     =====
-#         return the coordinations of the closest points.
-#     """
-    
-#     # first we need to delect the target_path from all_paths_list
-    
-#     target_path = all_paths[target_path_id]
-#     pair = get_pair_distance_from_multiple_points_to_one_paths(target_path, all_paths) 
-#     res = pair[np.where([pair[: , 1] < threshold])[1]][:, 0].astype(int)
-    
-#     connected_path_ids = np.delete(res, np.where(target_path_id == res)[0])
-    
-#     poc_connected_arr = []
-# #     poc_path_id_arr = []
-#     for connected_path_id in connected_path_ids:
-        
-#         path_coords = get_coords(df, connected_path_id)
-#         all_paths.pop(connected_path_id)
-#         # print('\n\tDelete path {} in the remaining path list.'.format(connected_path_id))
-#         # _, poc_connected = get_the_closest_path(path_coords[0], all_paths) # this shouldn't be finding the closest path, instead, we need to find the closest point to target path
-#         poc_connected = get_the_closest_point(path_coords[0], target_path_id, all_paths)
-# #         poc_path_id_arr.append(path_id)
-#         poc_connected_arr.append(poc_connected)
-    
-#     return connected_path_ids, poc_connected_arr
 
 def get_all_connected_paths(target_path_id, df, all_paths):
     
@@ -366,9 +338,9 @@ def find_trace_to_soma(ROI, soma_coords, df, threshold):
     ########################
     ## Is this necessary? ##
     ########################
-    # last_point = get_all_paths(df)[closest_path_id_arr[-1]][0]
-    # poc_connected_paths_arr.append(last_point) # add the last point to the array
-    # print(last_point)
+    # the_last_point = get_all_paths(df)[closest_path_id_arr[-1]][0]
+    # poc_connected_paths_arr.append(the_last_point) # add the last point to the array
+    # print(the_last_point)
 
     connected_paths_id_arr = sum(connected_paths_id_arr, [])
     print("the number of branches: ", len(poc_connected_paths_arr))    
@@ -424,4 +396,21 @@ def check_intersection(pocs_ROI1, pocs_ROI2):
         overlap_distance = 0
         
     # return res, overlap_distance, inersected_point
-    return res, overlap_distance
+    return res, overlap_distance, overlap_points
+
+def distance_between_two_ROIs(ROI1, ROI2, poc_processed1, poc_processed2, soma_coords, df, threshold):
+    
+    intersected, overlap_distance, overlap_points = check_intersection(poc_processed1, poc_processed2)
+    distance_ROI1toSoma = distance_to_soma(ROI1, soma_coords, df, threshold)
+    distance_ROI2toSoma = distance_to_soma(ROI2, soma_coords, df, threshold)    
+    
+    if intersected:
+        distance_between_two_ROIs = distance_ROI1toSoma + distance_ROI2toSoma - overlap_distance
+        number_of_branching = len(poc_processed1) + len(poc_processed2) - len(overlap_points) - 2
+    
+    else:
+        
+        distance_between_two_ROIs = distance_ROI1toSoma + distance_ROI2toSoma
+        number_of_branching = len(poc_processed1) + len(poc_processed2) - 1
+        
+    return distance_between_two_ROIs, number_of_branching
