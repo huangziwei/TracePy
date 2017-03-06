@@ -169,12 +169,12 @@ def get_all_paths(df):
     return path_dict
 
 
-poc_id = []
-for poc in poc_connected_paths_test:
-    res_test = np.array(poc == all_paths_test[0]
-    for i, comparision in enumerate(res_test):
-        if (res_test[i]).all():
-            poc_id.append(i)
+# poc_id = []
+# for poc in poc_connected_paths_test:
+#     res_test = np.array(poc == all_paths_test[0]
+#     for i, comparision in enumerate(res_test):
+#         if (res_test[i]).all():
+#             poc_id.append(i)
 
 
 
