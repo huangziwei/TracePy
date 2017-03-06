@@ -305,6 +305,14 @@ def find_trace_to_soma(ROI, soma_coords, df, threshold):
                     poc_connected_paths_arr.append(path_poc_dict[path_id])
         
         i += 1 
+
+    ########################
+    ## Is this necessary? ##
+    ########################
+    # last_point = get_all_paths(df)[closest_path_id_arr[-1]][0]
+    # poc_connected_paths_arr.append(last_point) # add the last point to the array
+    # print(last_point)
+
     connected_paths_id_arr = sum(connected_paths_id_arr, [])
     print("the number of branches: ", len(poc_connected_paths_arr))    
         
