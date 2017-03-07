@@ -245,7 +245,7 @@ def get_length_on_trace(point, path_id, all_paths):
     
     return length
 
-def find_trace_to_soma(ROI, soma_coords, df, threshold):
+def find_trace_to_soma(ROI, soma_coords, df, threshold=3):
 
     """
     Find the trace from ROI to soma.
@@ -287,12 +287,12 @@ def find_trace_to_soma(ROI, soma_coords, df, threshold):
     
     i = 0 # counter to stop while loop
     
-    while not connected_with_soma(point, soma_coords, threshold) and i < 100:
+    while not connected_with_soma(point, soma_coords, threshold=3) and i < 100:
         
         closest_path_id, poc_closest_path = get_the_closest_path(point, all_paths)    
         all_connected_path_ids, poc_connected_paths = get_all_connected_paths(closest_path_id, df, all_paths)
         point = all_paths[closest_path_id][0]
-        print("the {}nd closest path is {}".format(i+1, closest_path_id))
+        # print("the {}nd closest path is {}".format(i+1, closest_path_id))
 
         if len(poc_connected_paths) == 0:
             
@@ -343,12 +343,20 @@ def find_trace_to_soma(ROI, soma_coords, df, threshold):
     # print(the_last_point)
 
     connected_paths_id_arr = sum(connected_paths_id_arr, [])
-    print("the number of branches: ", len(poc_connected_paths_arr))    
-        
+
+    if len(connected_paths_id_arr_short) - 1 == 1:
+        print("The ROI ({}) is on the 1st branch from soma.".format(ROI))    
+    elif len(connected_paths_id_arr_short) - 1 == 2:
+        print("The ROI ({}) is on the 2nd branch from soma.".format(ROI))
+    elif len(connected_paths_id_arr_short) - 1 == 3:
+        print("The ROI ({}) is on the 3rd branch from soma.".format(ROI))
+    else:
+        print("The ROI ({}) is on the {}th branch from soma".format(ROI, len(connected_paths_id_arr_short) - 1))
+
     return closest_path_id_arr, poc_closest_path_arr, connected_paths_id_arr, poc_connected_paths_arr, connected_paths_id_arr_short
 
 
-def distance_to_soma(point, soma_coords, df, threshold, debug=False):
+def distance_to_soma(point, soma_coords, df, threshold=3, debug=False, unit='mu'):
 
     """
     calculate the distance between certain point and the soma along the neurite.
@@ -373,8 +381,16 @@ def distance_to_soma(point, soma_coords, df, threshold, debug=False):
         all_paths.pop(path_id)
         
         i+=1
-        
-    return sum(dis_arr)
+    
+    dis = sum(dis_arr)
+
+    if unit=='mu':
+        dis = dis / 512 * 340.48
+        print("The distance from ROI ({}) to Soma is {} µm." {point, dis}) 
+        return dis
+    else:
+
+        return sum(dis_arr)
 
 def check_intersection(pocs_ROI1, pocs_ROI2):
     
