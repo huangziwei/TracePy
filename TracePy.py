@@ -344,14 +344,14 @@ def find_trace_to_soma(ROI, soma_coords, df, threshold=3):
 
     connected_paths_id_arr = sum(connected_paths_id_arr, [])
 
-    if len(connected_paths_id_arr_short) - 1 == 1:
+    if len(poc_connected_paths_arr) - 1 == 1:
         print("The ROI ({}) is on the 1st branch from soma.".format(ROI))    
-    elif len(connected_paths_id_arr_short) - 1 == 2:
+    elif len(poc_connected_paths_arr) - 1 == 2:
         print("The ROI ({}) is on the 2nd branch from soma.".format(ROI))
-    elif len(connected_paths_id_arr_short) - 1 == 3:
+    elif len(poc_connected_paths_arr) - 1 == 3:
         print("The ROI ({}) is on the 3rd branch from soma.".format(ROI))
     else:
-        print("The ROI ({}) is on the {}th branch from soma".format(ROI, len(connected_paths_id_arr_short) - 1))
+        print("The ROI ({}) is on the {}th branch from soma".format(ROI, len(poc_connected_paths_arr) - 1))
 
     return closest_path_id_arr, poc_closest_path_arr, connected_paths_id_arr, poc_connected_paths_arr, connected_paths_id_arr_short
 
@@ -386,13 +386,13 @@ def distance_to_soma(point, soma_coords, df, threshold=3, debug=False, unit='mu'
 
     if unit=='mu':
         dis = dis / 512 * 340.48
-        print("The distance from ROI ({}) to Soma is {} µm." {point, dis}) 
+        # print("The distance from ROI ({}) to Soma is {:.3f} µm.".format(point, dis))
         return dis
     else:
 
         return sum(dis_arr)
 
-def check_intersection(pocs_ROI1, pocs_ROI2):
+def check_intersection(pocs_ROI1, pocs_ROI2, soma_coords, df, threshold):
     
     """
     This one works. 
@@ -414,19 +414,24 @@ def check_intersection(pocs_ROI1, pocs_ROI2):
     # return res, overlap_distance, inersected_point
     return res, overlap_distance, overlap_points
 
-def distance_between_two_ROIs(ROI1, ROI2, poc_processed1, poc_processed2, soma_coords, df, threshold):
+def distance_between_two_ROIs(ROI1, ROI2, poc_processed1, poc_processed2, soma_coords, df, threshold=3):
     
-    intersected, overlap_distance, overlap_points = check_intersection(poc_processed1, poc_processed2)
+    # print(soma_coords)
+
+    intersected, overlap_distance, overlap_points = check_intersection(poc_processed1, poc_processed2, soma_coords, df, threshold)
     distance_ROI1toSoma = distance_to_soma(ROI1, soma_coords, df, threshold)
     distance_ROI2toSoma = distance_to_soma(ROI2, soma_coords, df, threshold)    
     
     if intersected:
+        print('\nROI1 and ROI2 is intersected.')
         distance_between_two_ROIs = distance_ROI1toSoma + distance_ROI2toSoma - overlap_distance
-        number_of_branching = len(poc_processed1) + len(poc_processed2) - len(overlap_points) - 2
+        number_of_branching = len(poc_processed1) + len(poc_processed2) - 2*len(overlap_points) - 1
     
     else:
-        
+        print('\nROI1 and ROI2 is not intersected.')
         distance_between_two_ROIs = distance_ROI1toSoma + distance_ROI2toSoma
         number_of_branching = len(poc_processed1) + len(poc_processed2) - 1
-        
+    
+    print("\nThe length of the neurite between ROI 1 ({}) and ROI 2 ({}) is {:.3f}µm,".format(ROI1, ROI2, distance_between_two_ROIs))
+    print("and there are {} nodes between them.\n".format(number_of_branching))
     return distance_between_two_ROIs, number_of_branching
