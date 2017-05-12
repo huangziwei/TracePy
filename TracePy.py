@@ -21,8 +21,7 @@ def read_trace(trace_path):
     '''
     
 
-    import xml.etree.ElementTree as ET
-    import gzip
+    import xml.etree.ElementTree as ET import gzip
 
     
     def trace2xml(trace_path):
@@ -68,6 +67,10 @@ def detect_soma(img_path):
     return soma
 
 def get_coords(df, path_id):
+
+    '''
+    get the coordinates of a trace/path.
+    '''
     
     x = df[df['id'] == str(path_id)]['x'].astype('int').tolist()
     y = df[df['id'] == str(path_id)]['y'].astype('int').tolist()
@@ -154,7 +157,7 @@ def get_distance(a, b):
 def connected_with_soma(point, soma_coords, threshold):
     
     """
-    Check if a point is connected with soma. 
+    Check if a point is on the path which is connected with soma. 
     """
     
     if np.min(get_distance(point, soma_coords)) < threshold:
@@ -221,7 +224,7 @@ def get_all_connected_paths(target_path_id, df, all_paths):
         subset_paths = all_paths.copy()
         del subset_paths[path_id]
         output_path_id, poc_connected = get_the_closest_path(point=all_paths[path_id][0], all_paths=subset_paths)
-#         print(path_id, output_path_id, poc_connected)
+        # print(path_id, output_path_id, poc_connected)
         if output_path_id == target_path_id:
             connected_path_ids.append(path_id)
             poc_connected_arr.append(poc_connected) 
