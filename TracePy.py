@@ -21,7 +21,8 @@ def read_trace(trace_path):
     '''
     
 
-    import xml.etree.ElementTree as ET import gzip
+    import xml.etree.ElementTree as ET
+    import gzip
 
     
     def trace2xml(trace_path):
