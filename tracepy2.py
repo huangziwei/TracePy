@@ -160,13 +160,28 @@ def get_soma_info(stack):
     for i in range(np.ceil(radius * 2.5).astype(int)):
         ballvolume = scipy.ndimage.binary_dilation(ballvolume, structure=stt)
 
-    mask = np.logical_and(ballvolume, bimg)
+    mask_3d = np.logical_and(ballvolume, bimg)
+
+    soma_to_be_masked = mask_3d.mean(2)
+    soma_to_be_masked[soma_to_be_masked !=0] = 1
+    mask_2d = np.ma.masked_array(soma_to_be_masked, ~mask_3d.any(2))
     
     soma = {'centroid': centroid, 
             'radius': radius, 
-            'mask': mask}
+            'mask_2d': mask_2d,
+            'mask_3d': mask_3d}
 
     return soma
+
+# def get_soma_xy(stack_data):
+#     soma_info = get_soma_info(stack_data['wDataCh0'])
+    
+#     mask = ~soma_info['mask'].any(2)
+#     soma_to_mask = soma_info['mask'].mean(2)
+#     soma_to_mask[soma_to_mask != 0] = 1
+#     soma_masked = np.ma.masked_array(soma_to_mask, mask)
+    
+#     return soma_masked
 
 
 ####################################################
@@ -255,9 +270,9 @@ def rotate_roi(rec, stack):
     (cx, cy) = 0.5 * np.array(rec_rois.shape)
     
     labels = np.unique(rec_rois)[:-1]
+
     px = [np.vstack(np.where(rec_rois == i)).T[:, 0].mean() for i in labels] 
     py = [np.vstack(np.where(rec_rois == i)).T[:, 1].mean() for i in labels]
-
 
     px -= cx
     py -= cy
@@ -309,7 +324,8 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
                                'roi_id', 
                                'roi_rel_id', 
                                'roi_coords',
-                               'filepath'))
+                               # 'filepath',
+                               ))
     
     rec_id = 0
     roi_id = 0
@@ -341,6 +357,7 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
         roi_coords_stack_xyz = {}
 
         keys = roi_coords_stack_xy.keys()
+        print(len(keys))
         
         scope = 0
 
@@ -374,13 +391,15 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
                 
                 x, y, z = candidates[np.argmin(np.sum((candidates - origins) ** 2, 1))]
     
-                df_rois.loc[roi_id] = [rec_id, roi_id, roi_rel_id, tuple([x, y, z]), file]
+                # df_rois.loc[roi_id] = [rec_id, roi_id, roi_rel_id, tuple([x, y, z]), file]
+                df_rois.loc[roi_id] = [rec_id, roi_id, roi_rel_id, tuple([x, y, z])]
 
                 roi_id += 1
                 roi_rel_id += 1
 
             roi_rel_id= 0
             rec_id += 1
+
 
     ########################################
     ## Find the path which each ROI is on ##
@@ -390,7 +409,8 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
     ROI_coords = np.array(df_rois.roi_coords.tolist())
     p_id = []
     for i in range(len(ROI_coords)):
-        p_id.append(roi_on_which_path(df_trace, ROI_coords[i]))
+        # p_id.append(roi_on_which_path(df_trace, ROI_coords[i]))
+        p_id.append(point_on_which_path(df_trace, ROI_coords[i]))
     df_rois['path_id'] = p_id
     
     
@@ -398,12 +418,13 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
     ## Get all branch points, segments and distance from each ROI to soma ##
     ##############################################################
 
-    df_paths = get_df_paths(df_trace, soma_info)
+    # df_paths = get_df_paths(df_trace, soma_info)
+    df_paths = get_df_paths2(df_trace, soma_info)
 
     branchpoints = {}
     segments = {}
     distances = {}
-
+    branchpoints_distances = {}
     for roi_id in df_rois.roi_id:
 
         sms, smlen, bpts, num_bpts = get_all_segments(roi_id, df_rois, df_paths)
@@ -411,8 +432,8 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
         if len(bpts) >= 1 and bpts != [[]]:
             # print(bpts)
             bpts = np.vstack([p for p in bpts if p != []])
-            
-        branchpoints[int(roi_id)] = bpts
+
+        branchpoints[int(roi_id)] = bpts        
         segments[int(roi_id)] = sms
         distances[int(roi_id)] = np.sum(smlen) * stack_pixel_size
         
@@ -422,9 +443,81 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
     df_rois['branchpoints'] = branchpoints.values()
     df_rois['segments'] = segments.values()
 
-    return df_rois, df_paths
+    ## turn ids into int
+    df_rois['recording_id'] = df_rois['recording_id'].astype(int)
+    df_rois['roi_id'] = df_rois['roi_id'].astype(int)
+    df_rois['roi_rel_id'] = df_rois['roi_rel_id'].astype(int)
 
-def roi_on_which_path(df_trace, roi_coord, verbose=False):
+    df_branchpoints = get_df_branchpoints(df_trace, df_rois, df_paths, stack_pixel_size)
+
+    return df_rois, df_paths, df_branchpoints
+
+def get_df_branchpoints(df_trace, df_rois, df_paths, stack_pixel_size):
+    
+    branchpoints_tmp = df_rois.branchpoints.values
+    branchpoints_tmp = np.array([bpt for bpt in branchpoints_tmp if bpt != np.array([])])
+
+    tmp = np.vstack(branchpoints_tmp)
+    
+    all_branchpoints = tmp[np.unique(tmp.view(np.void(tmp.strides[0])),1)[1]]
+    
+    df_branchpoints = pd.DataFrame(columns=(
+                                            'branchpoint_id',
+                                            'branchpoint',
+                                            'branchpoint_to_soma_um'))
+    for i, bpt in enumerate(all_branchpoints):
+        
+        path_id = point_on_which_path(df_trace, bpt)
+        
+        results = distance_point2end(bpt, path_id, df_paths)
+        segment_lengths = results[0]
+        
+        while df_paths.loc[path_id].connect_to != -1:
+            
+            point_of_interest = df_paths.loc[path_id].connect_to_at
+            path_id = df_paths.loc[path_id].connect_to
+            
+            results = distance_point2end(point_of_interest, path_id, df_paths)
+            segment_length = results[0]
+            segment_lengths += segment_length
+            
+        df_branchpoints.loc[i] = [i, bpt, segment_lengths * stack_pixel_size] 
+        
+        df_branchpoints['branchpoint_id'] = df_branchpoints['branchpoint_id'].astype(int)
+                
+    return df_branchpoints
+
+# def roi_on_which_path(df_trace, roi_coord, verbose=False):
+
+#     '''
+#     Get the id of a path which a ROI is on.
+    
+#     Paramenters
+#     ===========
+#     df_trace: pandas DataFrame
+#         - DataFrame of the trace.
+#     roi_coord:
+#         the xyz-coordinate of a ROI
+    
+#     Return
+#     ======
+#     path_id: str
+#         the id of a path
+#     '''
+    
+#     path_list = np.unique(df_trace['id'].tolist())
+    
+#     for path_id in path_list:
+        
+#         path_coords = get_path_coords(df_trace, path_id)
+#         if (roi_coord == path_coords).all(1).any():
+#             if verbose:
+#                 print('ROI {} is on path {}'.format(roi_coord, path_id))
+#             return int(path_id)
+
+#     print('ROI {} is not on any paths'.format(roi_coord))
+
+def point_on_which_path(df_trace, point_coord, verbose=False):
 
     '''
     Get the id of a path which a ROI is on.
@@ -433,8 +526,8 @@ def roi_on_which_path(df_trace, roi_coord, verbose=False):
     ===========
     df_trace: pandas DataFrame
         - DataFrame of the trace.
-    roi_coord:
-        the xyz-coordinate of a ROI
+    point_coord:
+        the xyz-coordinate of a point
     
     Return
     ======
@@ -447,13 +540,10 @@ def roi_on_which_path(df_trace, roi_coord, verbose=False):
     for path_id in path_list:
         
         path_coords = get_path_coords(df_trace, path_id)
-        if (roi_coord == path_coords).all(1).any():
+        if (point_coord == path_coords).all(1).any():
             if verbose:
-                print('ROI {} is on path {}'.format(roi_coord, path_id))
+                print('ROI {} is on path {}'.format(point_coord, path_id))
             return int(path_id)
-
-    print('ROI {} is not on any paths'.format(roi_coord))
-
 
 
 ####################################
@@ -511,11 +601,11 @@ def get_distance(point_a, point_b):
     
     return np.sqrt(np.sum((point_a - point_b) ** 2, 1))
 
-def connected_with_soma(all_paths, key, soma_info, threshold=10):
+def connected_with_soma(all_paths, key, soma_info, threshold=5):
     
     path = all_paths[key]
     
-    xm, ym, zm = np.ma.where(soma_info['mask'])
+    xm, ym, zm = np.ma.where(soma_info['mask_3d'])
     soma_shape = np.array([xm, ym, zm]).T
     
     if np.min(get_distance(path[0], soma_shape)) < threshold or np.min(get_distance(path[1], soma_shape)) < threshold:
@@ -560,7 +650,7 @@ def get_df_paths(df_trace, soma_info):
 
     for i, key in enumerate(all_paths.keys()):
 
-        if connected_with_soma(all_paths, key, soma_info, threshold=10):
+        if connected_with_soma(all_paths, key, soma_info, threshold=5):
 
             connect_to    = -1
             connect_to_at = []
@@ -592,6 +682,68 @@ def get_df_paths(df_trace, soma_info):
     
     return df_paths
 
+def get_df_paths2(df_trace, soma_info):
+    
+    all_paths = get_all_paths(df_trace)
+    df_paths = pd.DataFrame(list(all_paths.items()), columns=['path_id', 'path'])
+    # df_paths['path2'] = ''
+
+    connect_to_all    = []
+    connect_to_at_all = []
+
+    for i, key in enumerate(all_paths.keys()):
+
+        if connected_with_soma(all_paths, key, soma_info, threshold=5):
+
+            connect_to    = -1
+            connect_to_at = []
+        else:
+            connect_to, connect_to_at = get_connect_to(all_paths, key)
+
+        connect_to_all.append(connect_to)
+        connect_to_at_all.append(connect_to_at)
+    
+    df_paths['connect_to'] = connect_to_all
+    df_paths['connect_to_at'] = connect_to_at_all
+    
+    df_paths.sort_values(['path_id'], ascending=[True], inplace=True)
+    df_paths.index = df_paths.path_id.as_matrix()
+
+    connected_by_all    = []
+    connected_by_at_all = []
+    
+    for i, key in enumerate(df_paths.path_id):
+        
+        connected_by    = df_paths[df_paths.connect_to == key].path_id.tolist()
+        connected_by_at = df_paths[df_paths.connect_to == key].connect_to_at.tolist()
+    
+        connected_by_all.append(connected_by)
+        connected_by_at_all.append(connected_by_at)
+    
+    df_paths['connected_by'] = connected_by_all
+    df_paths['connected_by_at'] = connected_by_at_all
+    
+    path2 = {}
+    for path_id in df_paths.path_id:
+    
+        connect_to = df_paths.loc[path_id].connect_to
+        path = df_paths.loc[path_id].path
+        connect_to_at = df_paths.loc[path_id].connect_to_at
+        
+        if connect_to == -1:
+            path2[path_id] = path
+
+        else:
+            if (connect_to_at == path).all(1).any():
+                path2[path_id] = path
+            else:
+                path = np.vstack([connect_to_at, path])
+                path2[path_id] = path
+    
+    df_paths['path'] = path2.values()
+
+    return df_paths
+
 def distance_point2end(point, path_id, df_paths):
     
     path = df_paths.loc[path_id].path
@@ -600,7 +752,8 @@ def distance_point2end(point, path_id, df_paths):
     if len(point_loc) > 1:
         point_loc = point_loc[0]
         
-    segment = path[:int(point_loc), :]
+    # segment = path[:int(point_loc), :] 
+    segment = path[:int(point_loc), :] # should include the point_loc into the segment?
     segment_length = np.sum(np.sqrt(np.sum((segment[1:] - segment[:-1])**2, 1)))    
     
     return segment_length, segment
@@ -612,13 +765,22 @@ def get_segment(connected_points, point_of_interest, path_id, df_paths):
         points_on_path = np.vstack([point_of_interest, connected_points])
     
         results =[distance_point2end(point, path_id, df_paths) for point in points_on_path]
-        distances = [results[i][0] for i in range(len(results))]
+        # results =[(segment_length0, segment0), (segment_length1, segment1), ...]
+        distances = np.array([results[i][0] for i in range(len(results))]) # lengths of all points to the end of the path
+
+        segment = results[0][1] # the segment from poi to the end of the path 
+        segment_length = distances[0] # the length from poi to the end of the path
+
+        # new added (need more time to review)
+        change_order = np.argsort(distances)[::-1]
+        # print(distances)
+
+        distances_sorted = distances[change_order]
+        points_on_path_sorted = points_on_path[change_order]
         
-        segment = results[0][1]
-        segment_length = distances[0]
-        
-        if sum(segment_length > distances) != 0:
-            branchpoints = points_on_path[segment_length > distances]
+        if sum(segment_length > distances_sorted) != 0:
+            branchpoints = points_on_path_sorted[segment_length > distances_sorted]        
+
         else:
             branchpoints = []
         num_branchpoints = len(branchpoints)
@@ -646,8 +808,6 @@ def get_all_segments(roi_id, df_rois, df_paths):
     all_segments_length = [segment_length]
     all_branchpoints = [branchpoints]
     sum_branchpoints = num_branchpoints
-    
-    # i=0
 
     while df_paths.loc[path_id].connect_to != -1:
         
@@ -669,8 +829,6 @@ def get_all_segments(roi_id, df_rois, df_paths):
         all_segments_length.append(segment_length)
         all_branchpoints.append(branchpoints)
         sum_branchpoints += num_branchpoints
-
-        # i+=1
         
     return all_segments, all_segments_length, all_branchpoints, sum_branchpoints
 
@@ -687,6 +845,46 @@ def get_distance_from_roi_to_soma(df_rois, roi_id, unit='pixel'):
         return np.sum(distance_arr)
     elif unit=='um':
         return np.sum(distance_arr) * 0.665
+
+def get_distance_from_branchpoint_to_soma(df_rois, roi_id):
+    
+    bpts = df_rois.loc[roi_id].branchpoints
+    sms = df_rois.loc[roi_id].segments
+    
+    num_bpts = len(bpts)
+    num_sms = len(sms)
+    
+    results = {}
+    for i, bpt in enumerate(bpts):
+        for j, sm in enumerate(sms):
+#             print(i, j, bpt)
+            point_loc = np.where((bpt == sm).all(1))[0]
+            
+            if len(point_loc) == 0:
+                continue
+            else:
+#                 print(i, j, bpt, point_loc, type(point_loc))
+                bpt_segment = sm[:int(point_loc), :]
+                bpt_segment_length = np.sum(np.sqrt(np.sum((bpt_segment[1:] - bpt_segment[:-1])**2, 1)))
+        
+                if j+1 == num_sms:
+                    distance_from_bpt_to_soma = bpt_segment_length
+                    results[i] = distance_from_bpt_to_soma
+                    break
+                    
+                else:
+                    sms_rest = sms[j:]
+                    
+                    sms_len_rest = 0
+                    for sm_rest in sms_rest:
+                        sm_len_rest = np.sum(np.sqrt(np.sum((sm_rest[1:] - sm_rest[:-1])**2, 1)))
+                        sms_len_rest += sm_len_rest
+                        
+                    distance_from_bpt_to_soma = bpt_segment_length + sms_len_rest
+                    results[i] = distance_from_bpt_to_soma
+                    break
+    
+    return results
 
 ##### something for plot
 #####
@@ -741,11 +939,3 @@ def get_distance_from_roi_to_soma(df_rois, roi_id, unit='pixel'):
 # bpts = np.vstack([p for p in bpts if p != []])
 # plt.scatter(bpts[:, 1], bpts[:, 0], color='blue')
 
-def get_soma_xy(stack_data):
-    soma_info = get_soma_info(stack_data['wDataCh0'])
-    mask = ~soma_info['mask'].any(2)
-    soma_to_mask = soma_info['mask'].mean(2)
-    soma_to_mask[soma_to_mask != 0] = 1
-    soma_masked = np.ma.masked_array(soma_to_mask, mask)
-    
-    return soma_masked
