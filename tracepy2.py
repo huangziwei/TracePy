@@ -10,6 +10,12 @@ import pandas as pd
 
 from skimage.feature import match_template
 
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from matplotlib import rcParams
+rcParams['font.family'] = 'DejaVu Sans'
+
 #######################
 ## Helper functions ##
 ######################
@@ -324,6 +330,13 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
                                'roi_id', 
                                'roi_rel_id', 
                                'roi_coords',
+                               'STRF_SVD_Space0',
+                               'STRF_SVD_Time0',
+                               'Traces0_raw',
+                               'Traces0_znorm',
+                               'Tracetimes0',
+                               'Triggertimes',
+                               'Triggervalues',
                                # 'filepath',
                                ))
     
@@ -332,8 +345,6 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
     roi_rel_id = 0
 
     for file in dendrite_files:
-        
-        roi_coords_stack_xy = {}
 
         dname = file.split('/')[-1].split('_')[2]
 
@@ -350,55 +361,62 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
         d_rec_rot_x0, d_rec_rot_y0 = roi_matching(crop, d_rec_rot) # coords of roi in crop
         roi_coords_crop = roi_coords_rot + np.array([d_rec_rot_x0, d_rec_rot_y0])
 
-#         d_rec_rot_origin[dname] = np.array([d_rec_rot_x0 + d_stack_cx-padding , d_rec_rot_y0 + d_stack_cy-padding])
-
-        roi_coords_stack_xy[dname] = roi_coords_crop + np.array([d_stack_cx-padding, d_stack_cy-padding])
-
-        roi_coords_stack_xyz = {}
-
-        keys = roi_coords_stack_xy.keys()
-        print(len(keys))
+        roi_coords_stack_xy = roi_coords_crop + np.array([d_stack_cx-padding, d_stack_cy-padding])
         
         scope = 0
 
-        for key in keys:
-            d_coords_xy = np.round(roi_coords_stack_xy[key]).astype(int)
-            d_coords_xyz = np.zeros([d_coords_xy.shape[0], d_coords_xy.shape[1]+1])
-            for i, roi_xy in enumerate(d_coords_xy):
-                offset = np.where(linestack[roi_xy[0]-scope:roi_xy[0]+scope+1, roi_xy[1]-scope:roi_xy[1]+scope+1] == 1)
+        d_coords_xy = np.round(roi_coords_stack_xy).astype(int)
+        d_coords_xyz = np.zeros([d_coords_xy.shape[0], d_coords_xy.shape[1]+1])
+        
+        rois_labels_real = np.arange(0, len(d_coords_xy))[::-1]
 
+        for i, roi_xy in enumerate(d_coords_xy):
+            
+            offset = np.where(linestack[roi_xy[0]-scope:roi_xy[0]+scope+1, roi_xy[1]-scope:roi_xy[1]+scope+1] == 1)
+
+            if offset[2].size == 0:
+                scope += 1
+                offset = np.where(linestack[roi_xy[0]-scope:roi_xy[0]+scope+1, roi_xy[1]-scope:roi_xy[1]+scope+1] == 1)
                 if offset[2].size == 0:
-                    scope += 1
-                    offset = np.where(linestack[roi_xy[0]-scope:roi_xy[0]+scope+1, roi_xy[1]-scope:roi_xy[1]+scope+1] == 1)
-                    if offset[2].size == 0:
-                        continue
-                    else:
-                        x_c = np.arange(roi_xy[0]-scope,roi_xy[0]+scope+1)[offset[0]]
-                        y_c = np.arange(roi_xy[1]-scope,roi_xy[1]+scope+1)[offset[1]]
-                        z_c = offset[2]
+                    continue
                 else:
                     x_c = np.arange(roi_xy[0]-scope,roi_xy[0]+scope+1)[offset[0]]
                     y_c = np.arange(roi_xy[1]-scope,roi_xy[1]+scope+1)[offset[1]]
                     z_c = offset[2]
-    
-                x_o = np.round(roi_coords_stack_xy[dname][roi_rel_id][0]).astype(int)
-                y_o = np.round(roi_coords_stack_xy[dname][roi_rel_id][1]).astype(int)
-                z_o = np.mean(offset[2]).astype(int)
-    
+            else:
+                x_c = np.arange(roi_xy[0]-scope,roi_xy[0]+scope+1)[offset[0]]
+                y_c = np.arange(roi_xy[1]-scope,roi_xy[1]+scope+1)[offset[1]]
+                z_c = offset[2]
 
-                candidates = np.array([np.array([x_c[i], y_c[i], z_c[i]]) for i in range(len(x_c))])
-                origins = np.array([x_o, y_o, z_o])
-                
-                x, y, z = candidates[np.argmin(np.sum((candidates - origins) ** 2, 1))]
-    
-                # df_rois.loc[roi_id] = [rec_id, roi_id, roi_rel_id, tuple([x, y, z]), file]
-                df_rois.loc[roi_id] = [rec_id, roi_id, roi_rel_id, tuple([x, y, z])]
+            x_o = np.round(roi_coords_stack_xy[roi_rel_id][0]).astype(int)
+            y_o = np.round(roi_coords_stack_xy[roi_rel_id][1]).astype(int)
+            z_o = np.mean(offset[2]).astype(int)
 
-                roi_id += 1
-                roi_rel_id += 1
 
-            roi_rel_id= 0
-            rec_id += 1
+            candidates = np.array([np.array([x_c[i], y_c[i], z_c[i]]) for i in range(len(x_c))])
+            origins = np.array([x_o, y_o, z_o])
+            
+            x, y, z = candidates[np.argmin(np.sum((candidates - origins) ** 2, 1))]
+
+            roi_label = rois_labels_real[i]
+
+            STRF_SVD_Space0 = d['STRF_SVD_Space0'][:, :, roi_label]
+            STRF_SVD_Time0 = d['STRF_SVD_Time0'][:, roi_label]
+
+            Traces0_raw = d['Traces0_raw'][:, roi_label]
+            Traces0_znorm = d['Traces0_znorm'][:, roi_label]
+            Tracetimes0 = d['Tracetimes0'][:, roi_label]
+            Triggertimes = d['Triggertimes']
+            Triggervalues = d['Triggervalues']
+
+            # df_rois.loc[roi_id] = [rec_id, roi_id, roi_rel_id, tuple([x, y, z]), file]
+            df_rois.loc[roi_id] = [rec_id, roi_id, roi_rel_id, np.array([x, y, z]), STRF_SVD_Space0, STRF_SVD_Time0, Traces0_raw, Traces0_znorm, Tracetimes0, Triggertimes, Triggervalues]
+
+            roi_id += 1
+            roi_rel_id += 1
+
+        roi_rel_id= 0
+        rec_id += 1
 
 
     ########################################
@@ -423,8 +441,10 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
 
     branchpoints = {}
     segments = {}
-    distances = {}
+    distance_dendritic = {}
+    distance_radial = {}
     branchpoints_distances = {}
+
     for roi_id in df_rois.roi_id:
 
         sms, smlen, bpts, num_bpts = get_all_segments(roi_id, df_rois, df_paths)
@@ -435,11 +455,13 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
 
         branchpoints[int(roi_id)] = bpts        
         segments[int(roi_id)] = sms
-        distances[int(roi_id)] = np.sum(smlen) * stack_pixel_size
+        distance_dendritic[int(roi_id)] = np.sum(smlen) * stack_pixel_size
+        distance_radial[int(roi_id)] = np.sqrt(np.sum((soma_info['centroid'] - df_rois.loc[roi_id].roi_coords) ** 2)) * stack_pixel_size
         
         # print(roi_id, np.sum(smlen))
 
-    df_rois['distance_from_soma_um'] = distances.values() 
+    df_rois['distance_dendritic_um'] = distance_dendritic.values() 
+    df_rois['distance_radial_um'] = distance_radial.values()
     df_rois['branchpoints'] = branchpoints.values()
     df_rois['segments'] = segments.values()
 
@@ -886,56 +908,200 @@ def get_distance_from_branchpoint_to_soma(df_rois, roi_id):
     
     return results
 
-##### something for plot
-#####
-# mask = ~soma_info['mask'].any(2)
-# soma_to_mask = soma_info['mask'].mean(2)
-# soma_to_mask[soma_to_mask != 0] = 1
-# soma_masked = np.ma.masked_array(soma_to_mask, mask)
+#########################
+## Pairwise Statistics ##
+#########################
 
-# plt.figure(figsize=(16,16))
-# plt.imshow(linestack.mean(2), origin='lower', cmap=plt.cm.binary)
-# plt.grid('off')
-
-# plt.scatter(ROI_coords[:, 1], ROI_coords[:, 0], c='red')
-
-# # target_path_id = 9
-# roi_id = 1
-# target_path_id = df_rois.loc[roi_id].path_id
-# ps = df_rois.loc[roi_id].roi_coords
-# plt.scatter(ps[1], ps[0], color='orange')
-# sms, smlen, bpts, num_bpts = get_all_segments(roi_id, df_rois, df_paths)
-# # print(sl, bp)
-
-# target_path = df_paths[df_paths.path_id == target_path_id].path.values[0]
-# plt.plot(target_path[:, 1], target_path[:, 0], color='black')
-# plt.annotate(target_path_id, xy=(target_path[-1, 1]-5, target_path[-1, 0]-5), color='black', fontsize=20)
-
-# # connected_path_ids = df_paths[df_paths.path_id == target_path_id].connected_by.values[0]
-# # connected_path_ids
-# # for connected_path_id in connected_path_ids:
-# #     connected_path = df_paths[df_paths.path_id == connected_path_id].path.values[0]
+def unique_row(a):
     
-# #     connected_point = df_paths[df_paths.path_id == connected_path_id].connect_to_at.values[0]
+    b = np.ascontiguousarray(a).view(np.dtype((np.void, a.dtype.itemsize * a.shape[1])))
+    _, idx = np.unique(b, return_index=True)
     
-# #     plt.plot(connected_path[:, 1], connected_path[:, 0], color='blue')
-# #     plt.scatter(connected_point[1],connected_point[0], color='blue')
-# #     plt.annotate(connected_path_id, xy=(connected_path[-1, 1]-5, connected_path[-1, 0]-5), color='black', fontsize=20)
-
-# # from copy import copy
-# # palette = copy(plt.cm.gray)
-# # palette.set_over('w', 0)
-# # palette.set_under('r', 0.5)
-# # palette.set_bad('w')
-
-# # plt.imshow(np.ma.make_mask(soma_info['mask'].mean(2)), )
-# plt.imshow(soma_masked, origin='lower', cmap=plt.cm.viridis, vmin=0.0)
-
-
-
-# for smm in sms:
-#     plt.plot(smm[:, 1], smm[:,0])
+    unique_a = a[idx]
     
-# bpts = np.vstack([p for p in bpts if p != []])
-# plt.scatter(bpts[:, 1], bpts[:, 0], color='blue')
+    return unique_a
 
+def get_segment_from_roi_to_nexus_pt(sms_roi_to_soma, nexus_pt):    
+    
+    all_locs = [(pt == nexus_pt).all(1) for pt in sms_roi_to_soma]    
+    for i, loc in enumerate(all_locs):
+        if loc.any():
+            nexus_pt_loc = np.where(loc)[0][0]
+            sm_roi_to_nexus = sms_roi_to_soma[i][nexus_pt_loc:]
+            break
+                
+    if i == 0:
+        sm_f = sm_roi_to_nexus
+        sm_f = sm_f.reshape(1, sm_f.shape[0], sm_f.shape[1])
+#         print(sm_f.shape)
+        
+        return np.vstack(sm_f)
+    else:
+        
+        sm0 = sms_roi_to_soma[:i]
+        sm1 = sm_roi_to_nexus
+        
+        sm_f = sm0.copy()
+        sm_f.append(sm1)
+        sm_f = np.array(sm_f)
+                
+        return np.vstack(sm_f[::-1])
+
+def get_info_roi2roi(df_trace, df_paths, df_rois, df_branchpoints, roi_id0, roi_id1):
+    
+    roi0 = df_rois.loc[roi_id0].roi_coords
+    roi1 = df_rois.loc[roi_id1].roi_coords
+
+    roi0_on_path_id = point_on_which_path(df_trace, roi0)
+    roi1_on_path_id = point_on_which_path(df_trace, roi1)
+
+    bpts0 = df_rois.loc[roi_id0].branchpoints
+    bpts1 = df_rois.loc[roi_id1].branchpoints
+
+    overlap_pts = [pt0 for pt0 in bpts0 for pt1 in bpts1  if (pt0 == pt1).all()]
+    
+    sms_roi0_to_soma = df_rois.loc[roi_id0].segments
+    sms_roi1_to_soma = df_rois.loc[roi_id1].segments
+    
+    if len(overlap_pts)>0: # intersected
+        
+        nexus_pt = overlap_pts[0]
+        
+        nexus_loc_in_bpts0 = np.where([(nexus_pt == pt).all() for pt in bpts0])[0][0]
+        nexus_loc_in_bpts1 = np.where([(nexus_pt == pt).all() for pt in bpts1])[0][0]
+
+        sm0 = get_segment_from_roi_to_nexus_pt(sms_roi0_to_soma, nexus_pt)
+        sm1 = get_segment_from_roi_to_nexus_pt(sms_roi1_to_soma, nexus_pt) 
+
+        if sm0.shape[0] > sm1.shape[0]:
+            A = sm0.copy()
+            B = sm1.copy()
+        else:
+            A = sm1.copy()
+            B = sm0.copy()
+
+        loc = np.where((B[-1] == A).all(1))[0] # loc of shorter roi on longer roi
+
+        if len(loc) == 0:
+            sms_between = [sm0, sm1]
+            bpts_between = np.vstack([bpts0[:nexus_loc_in_bpts0+1], bpts1[:nexus_loc_in_bpts1+1]])
+        else:
+            sms_between = [A[loc[0]:]]
+            bpts_between = np.vstack([bpts0[:nexus_loc_in_bpts0], bpts1[:nexus_loc_in_bpts1]])
+    
+    else: # not intersected
+        
+        sm0 = np.vstack(sms_roi0_to_soma[::-1])
+        sm1 = np.vstack(sms_roi1_to_soma[::-1])
+        sms_between = [sm0, sm1]
+        bpts_between = np.vstack([bpts0, bpts1])
+        
+    bpts_between = unique_row(bpts_between)
+
+    return sms_between, bpts_between
+
+def get_df_pairwise(df_trace, df_paths, df_rois, df_branchpoints):
+
+    df_pairwise = pd.DataFrame(columns=('pair_id',
+                                        'segments_between',
+                                        'branchpoints_between'))
+
+    all_roi_id = df_rois.roi_id.values
+
+    i = 0
+    for roi_id0 in all_roi_id:
+        
+        all_roi_id = np.delete(all_roi_id, 0)
+        
+        for roi_id1 in all_roi_id:
+            
+            sms_between, bpts_between = get_info_roi2roi(df_trace, df_paths, df_rois, df_branchpoints, roi_id0, roi_id1)
+            df_pairwise.loc[i] = [set([roi_id0, roi_id1]), sms_between, bpts_between]
+            i += 1
+
+    return df_pairwise
+
+#############
+## Ploting ##
+#############
+
+def plot_all_rois(df_trace, df_rois, meta_trace, soma_info, figsize=(16,16), savefig=False, fig_path='.' ):
+
+    linestack = trace2linestack(df_trace, meta_trace)
+
+    plt.figure(figsize=figsize)
+    plt.imshow(linestack.sum(2), origin='lower', cmap=plt.cm.binary)
+    plt.imshow(soma_info['mask_2d'], origin='lower', cmap=plt.cm.binary, vmin=0.0, alpha=0.3)
+
+    rois_pos = np.vstack(df_rois.roi_coords)
+    rois_dis = df_rois.distance_dendritic_um.values
+    plt.scatter(rois_pos[:, 1], rois_pos[:, 0], c=rois_dis/df_rois.distance_dendritic_um.max(), s=180*figsize[0]/16, cmap=plt.cm.viridis)
+   
+    # plt.colorbar(orientation="horizontal")
+    
+    for i, roi_id in enumerate(df_rois.roi_id):
+        plt.annotate(int(roi_id), xy=(rois_pos[i][1]-3, rois_pos[i][0]-3), color='white', fontsize=figsize[0]*0.7)
+
+    plt.title('ROIs (color-coded by the distance along dendrites to soma)', fontsize=figsize[0])
+    plt.grid('off')
+
+    if savefig:
+        plt.savefig('{}/ROI_color-coded.png'.format(fig_path))
+
+def plot_roi2soma(df_trace, df_rois, roi_id, meta_trace, soma_info, figsize=(16,16), savefig=False, fig_path='.' ):
+
+    linestack = trace2linestack(df_trace, meta_trace)
+
+    plt.figure(figsize=figsize)
+    plt.imshow(linestack.sum(2), origin='lower', cmap=plt.cm.binary)
+    plt.imshow(soma_info['mask_2d'], origin='lower', cmap=plt.cm.binary, vmin=0.0, alpha=0.3)
+
+    all_roi_pos = np.vstack(df_rois.roi_coords)
+    plt.scatter(all_roi_pos[:, 1], all_roi_pos[:, 0], color='gray', s=180, alpha=0.3)
+
+    for sm in df_rois.loc[roi_id].segments:
+
+        plt.plot(sm[:, 1], sm[:, 0], color='red', lw=2.5)
+
+    bpts = df_rois.loc[roi_id].branchpoints
+    roi_pos = df_rois.loc[roi_id].roi_coords
+    plt.scatter(bpts[:, 1], bpts[:, 0], color='black')
+    plt.scatter(roi_pos[1], roi_pos[0], color='red', s=180)
+    plt.annotate(int(roi_id), xy=(roi_pos[1]-3, roi_pos[0]-3), color='white')
+
+    plt.title('ROI [{}] to soma'.format(roi_id))
+    plt.grid('off')
+
+    if savefig:
+        plt.savefig('{}/ROI_{}_to_soma.png'.format(fig_path, roi_id))
+
+def plot_roi2roi(df_trace, df_rois, df_pairwise, roi_id0, roi_id1, meta_trace, soma_info, figsize=(16,16), savefig=False, fig_path='.' ):
+
+    linestack = trace2linestack(df_trace, meta_trace)
+
+    plt.figure(figsize=figsize)
+    plt.imshow(linestack.sum(2), origin='lower', cmap=plt.cm.binary)
+    plt.imshow(soma_info['mask_2d'], origin='lower', cmap=plt.cm.binary, vmin=0.0, alpha=0.3)
+
+    all_roi_pos = np.vstack(df_rois.roi_coords)
+    plt.scatter(all_roi_pos[:, 1], all_roi_pos[:, 0], color='gray', s=180, alpha=0.3)
+
+    bpts = df_pairwise[df_pairwise.pair_id == {roi_id0,roi_id1}].branchpoints_between.values[0]
+    sms =  df_pairwise[df_pairwise.pair_id == {roi_id0,roi_id1}].segments_between.values[0]
+
+
+    roi0_pos = df_rois.loc[roi_id0].roi_coords
+    roi1_pos = df_rois.loc[roi_id1].roi_coords
+
+    plt.scatter(roi0_pos[1], roi0_pos[0], s=180, color='red')
+    plt.scatter(roi1_pos[1], roi1_pos[0], s=180, color='red')
+
+    for bpt in bpts:
+        if len(bpt) != 0:
+            plt.scatter(bpt[1], bpt[0], s=80, color='black', zorder=10)
+
+    for sm in sms:
+        plt.plot(sm[:, 1], sm[:, 0], color='red', lw=4)
+        
+    if savefig:
+        plt.savefig('{}/ROI_{}_to_{}.png'.format(fig_path, roi_id0, roi_id1))
