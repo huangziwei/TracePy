@@ -358,6 +358,12 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
         padding = int(max(d_rec_rot.shape)) 
         crop = linestack_xy[d_stack_cx-padding:d_stack_cx+padding, d_stack_cy-padding:d_stack_cy+padding]
 
+        scale_down = 0.9
+        while 0 in np.unique(crop.shape):
+            padding = int(scale_down * max(d_rec_rot.shape))
+            crop = linestack[d_stack_cx-padding:d_stack_cx+padding, d_stack_cy-padding:d_stack_cy+padding].mean(2)
+            scale_down *= scale_down
+
         d_rec_rot_x0, d_rec_rot_y0 = roi_matching(crop, d_rec_rot) # coords of roi in crop
         roi_coords_crop = roi_coords_rot + np.array([d_rec_rot_x0, d_rec_rot_y0])
 
