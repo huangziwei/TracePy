@@ -328,8 +328,10 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
     
     df_rois = pd.DataFrame(columns=('recording_id', 
                                'roi_id', 
-                               'roi_rel_id', 
+                               'roi_rel_id',
+                               'recording_center', 
                                'roi_coords',
+
                                'STRF_SVD_Space0',
                                'STRF_SVD_Time0',
                                'Traces0_raw',
@@ -366,8 +368,11 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
 
         d_rec_rot_x0, d_rec_rot_y0 = roi_matching(crop, d_rec_rot) # coords of roi in crop
         roi_coords_crop = roi_coords_rot + np.array([d_rec_rot_x0, d_rec_rot_y0])
+        rec_center_crop = np.array([d_rec_rot.shape[0]/2,  d_rec_rot.shape[1]/2]) + np.array([d_rec_rot_x0, d_rec_rot_y0])
+
 
         roi_coords_stack_xy = roi_coords_crop + np.array([d_stack_cx-padding, d_stack_cy-padding])
+        rec_center_stack_xy = rec_center_crop + np.array([d_stack_cx-padding, d_stack_cy-padding])
         
         scope = 0
 
@@ -416,7 +421,7 @@ def get_df_rois(trace_path, dendrite_files, soma_h5_path, stack_h5_path):
             Triggervalues = d['Triggervalues']
 
             # df_rois.loc[roi_id] = [rec_id, roi_id, roi_rel_id, tuple([x, y, z]), file]
-            df_rois.loc[roi_id] = [rec_id, roi_id, roi_rel_id, np.array([x, y, z]), STRF_SVD_Space0, STRF_SVD_Time0, Traces0_raw, Traces0_znorm, Tracetimes0, Triggertimes, Triggervalues]
+            df_rois.loc[roi_id] = [rec_id, roi_id, roi_rel_id, rec_center_stack_xy, np.array([x, y, z]), STRF_SVD_Space0, STRF_SVD_Time0, Traces0_raw, Traces0_znorm, Tracetimes0, Triggertimes, Triggervalues]
 
             roi_id += 1
             roi_rel_id += 1
@@ -1054,6 +1059,16 @@ def plot_all_rois(df_trace, df_rois, meta_trace, soma_info, figsize=(16,16), sav
     if savefig:
         plt.savefig('{}/ROI_color-coded.png'.format(fig_path))
 
+def plot_anatomy(df_trace,meta_trace, soma_info, figsize=(16,16), savefig=False, fig_path='.' ):
+
+    linestack = trace2linestack(df_trace, meta_trace)
+
+    plt.figure(figsize=figsize)
+    plt.imshow(linestack.sum(2), origin='lower', cmap=plt.cm.binary)
+    plt.imshow(soma_info['mask_2d'], origin='lower', cmap=plt.cm.binary, vmin=0.0, alpha=0.3)
+
+    plt.grid('off')
+
 def plot_roi2soma(df_trace, df_rois, roi_id, meta_trace, soma_info, figsize=(16,16), savefig=False, fig_path='.' ):
 
     linestack = trace2linestack(df_trace, meta_trace)
@@ -1111,3 +1126,168 @@ def plot_roi2roi(df_trace, df_rois, df_pairwise, roi_id0, roi_id1, meta_trace, s
         
     if savefig:
         plt.savefig('{}/ROI_{}_to_{}.png'.format(fig_path, roi_id0, roi_id1))
+
+
+#####################
+## Receptive Field ##
+#####################
+
+def upsample_triggers(triggers,interval,rate):
+    return np.linspace(
+        triggers.min(),
+        triggers.max() + interval,
+        triggers.shape[0] * rate
+    )
+
+def znorm(data):
+    return (data - data.mean())/data.std()
+
+def interpolate_weights(data, triggers):
+    data_interp = sp.interpolate.interp1d(
+        data['Tracetimes0'].flatten(), 
+        znorm(data['Traces0_raw'].flatten()),
+        kind = 'linear'
+    ) (triggers)
+    
+    return znorm(data_interp)
+
+def lag_weights(weights,nLag):
+    lagW = np.zeros([weights.shape[0],nLag])
+    
+    for iLag in range(nLag):
+        lagW[iLag:-nLag+iLag,iLag] = weights[nLag:]/nLag
+        
+    return lagW
+
+def extract_sta_rois(df_rois, roi_id, stimulus_path):
+    
+    data = df_rois.loc[roi_id]
+    triggers = data['Triggertimes']
+    
+    weights = interpolate_weights(data, triggers)
+    lagged_weights = lag_weights(weights, 5)
+
+    stimulus = load_h5_data(stimulus_path)['k']
+    stimulus = stimulus.reshape(15*20, -1)
+    # stimulus = stimulus[:, 1500-len(weights):]
+    # skip = np.floor(data['Triggertimes'][0]).astype(int)
+    offset = 0
+    stimulus = stimulus[:, offset:len(weights)+offset]
+
+    sta = stimulus.dot(lagged_weights)
+    U,S,Vt = randomized_svd(sta,3)
+    
+    return U[:, 0].reshape(15,20)
+
+def extract_sta_soma(soma_data, stimulus_path):
+    
+    triggers = soma_data['Triggertimes']
+    triggers += -0.1
+    weights = interpolate_weights(soma_data, triggers)
+    lagged_weights = lag_weights(weights, 5)
+
+    stimulus = load_h5_data(stimulus_path)['k']
+    stimulus = stimulus.reshape(15*20, -1)
+    offset = 0
+    stimulus = stimulus[:, offset:len(weights)+offset]
+
+    sta = stimulus.dot(lagged_weights)
+    U,S,Vt = randomized_svd(sta,3)
+    
+    return U[:, 0].reshape(15,20)
+
+def pad_linestack(linestack, RF_resized, rec_center):
+    
+    linestack_xy = linestack.mean(2)
+    
+    Rx, Ry = np.array([RF_resized.shape[0]/2, RF_resized.shape[1]/2])
+    Sx, Sy = rec_center[0]
+    
+    right_pad = np.round(Ry - (linestack_xy.shape[0] - Sy)).astype(int)
+    left_pad = np.round(Ry - Sy).astype(int)
+    top_pad = np.round(Rx - (linestack_xy.shape[0] - Sx)).astype(int)
+    bottom_pad = np.round(Rx - Sx).astype(int)
+    
+    linestack_padded = np.pad(linestack_xy, ((top_pad, bottom_pad), (left_pad, right_pad)), 'constant')
+    
+    return linestack_padded
+
+def resize_RF(RF, stack):
+    scale_factor = 30/pixel_size_stack(stack)
+    return sp.misc.imresize(RF, size=scale_factor, interp='bicubic')
+
+##########################
+## Contours based on RF ##
+##########################
+
+def get_roi_contour_on_RF(RF, threshold=3):
+    x, y = np.mgrid[:RF.shape[0], :RF.shape[1]]
+    c = cntr.Cntr(x,y, RF)
+
+    res = c.trace(RF.mean()+RF.std() * threshold)
+
+    return (res[0][:, 1], res[0][:, 0])
+
+def get_roi_contour_on_stack(df_rois, roi_id, stimulus_path, threshold=1):
+    
+    rec_id = df_rois.loc[roi_id].recording_id
+    
+    df_rec = df_rois[df_rois.recording_id == rec_id] 
+    
+    rec_center = df_rec.recording_center.iloc[0]
+    
+    RF = extract_sta_rois(df_rec, roi_id, stimulus_path)
+#     RF = df_rec.loc[roi_id].STRF_SVD_Space0
+    RF = np.fliplr(RF)
+    RF_sm = ndimage.gaussian_filter(RF, sigma=(1,1), order=0)
+    RF_resized = resize_RF(RF_sm, stack_data)
+    
+    Rx, Ry = np.array([RF_resized.shape[0]/2, RF_resized.shape[1]/2])
+    Sx, Sy = rec_center
+    
+    left_pad = np.round(Ry - Sy).astype(int)
+    bottom_pad = np.round(Rx - Sx).astype(int)
+    
+    (x, y) = get_roi_contour_on_RF(RF_resized, threshold)
+    
+    return (x-left_pad, y-bottom_pad)
+
+def get_soma_contour_on_stack(s, soma_info, threshold=2):
+    (stack_soma_cx, stack_soma_cy, stack_soma_cz) = soma_info['centroid']
+    linestack_xy = soma_info['mask_2d']
+
+    s_rec_rot = tp.rotate_rec(s, stack_data)
+    s_rois_rot, roi_coords_rot = tp.rotate_roi(s, stack_data)
+
+    s_rel_cy, s_rel_cx, s_rel_cz = tp.rel_position_um(soma_data, s) / tp.pixel_size_stack(stack_data)
+    s_stack_cx, s_stack_cy = int(stack_soma_cx+s_rel_cx), int(stack_soma_cy+s_rel_cy) 
+
+    padding = int(max(s_rec_rot.shape)) 
+    crop = linestack_xy[s_stack_cx-padding:s_stack_cx+padding, s_stack_cy-padding:s_stack_cy+padding]
+
+    scale_down = 0.9
+    while 0 in np.unique(crop.shape):
+        padding = int(scale_down * max(d_rec_rot.shape))
+        crop = linestack[d_stack_cx-padding:d_stack_cx+padding, d_stack_cy-padding:d_stack_cy+padding].mean(2)
+        scale_down *= scale_down
+
+    s_rec_rot_x0, s_rec_rot_y0 = tp.roi_matching(crop, s_rec_rot) # coords of roi in crop
+    rec_center_crop = np.array([s_rec_rot.shape[0]/2,  s_rec_rot.shape[1]/2]) + np.array([s_rec_rot_x0, s_rec_rot_y0])
+
+
+    rec_center_stack_xy = rec_center_crop + np.array([s_stack_cx-padding, s_stack_cy-padding])
+
+    RF = s['STRF_SVD_Space0'].reshape(15,20)
+    RF = np.fliplr(RF)
+    RF_sm = ndimage.gaussian_filter(RF, sigma=(1,1), order=0)
+    RF_resized = resize_RF(RF_sm, stack_data)
+    
+    Rx, Ry = np.array([RF_resized.shape[0]/2, RF_resized.shape[1]/2])
+    Sx, Sy = rec_center_stack_xy
+    
+    left_pad = np.round(Ry - Sy).astype(int)
+    bottom_pad = np.round(Rx - Sx).astype(int)
+    
+    (x, y) = get_contour_on_RF(RF_resized, threshold)
+    
+    return (x-left_pad, y-bottom_pad)
