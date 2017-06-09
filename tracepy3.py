@@ -21,6 +21,7 @@ class TracingReg(object):
         self.data_stack = load_h5_data(stack_h5_path)
         self.data_soma = load_h5_data(soma_h5_path)
         self.info_soma = get_info_soma(self.data_stack['wDataCh0'])
+        self.linestack = trace2linestack(self.df_trace, self.meta_trace)
 
         print('Loaded necessary data.')
 
@@ -40,10 +41,14 @@ class TracingReg(object):
         if 'df_rois.pickle' in os.listdir(Local_tmp_path):
             print('\ndf_rois is loaded from existing pickle file.')
             self.df_rois = pd.read_pickle(Local_tmp_path + '/df_rois.pickle')
+        else:
+            print('\nPlease scroll down to df_rois session.')
 
         if 'df_roipairs.pickle' in os.listdir(Local_tmp_path):
             print('\ndf_roipairs is loaded from existing pickle file.')
             self.df_roipairs = pd.read_pickle(Local_tmp_path + '/df_roipairs.pickle')
+        else:
+            print('\nPlease scroll down to df_roipairs session.')
     
     def check_paths_quality(self):
 
@@ -78,7 +83,13 @@ class TracingReg(object):
 
         self.check_paths_quality()
 
-    def update_df_paths_info(self):
+    def update_df_paths_info(self, exception=None):
+
+        """
+        exception: dict
+            a dictionary to handle exception cases. e.g.
+            {key: to delete}
+        """
 
         df_paths = self.df_paths.copy()
 
@@ -94,7 +105,11 @@ class TracingReg(object):
                 connect_to_dict[key] = -1
                 connect_to_at_dict[key] = []
             else:
-                connect_to_dict[key], connect_to_at_dict[key] = get_connect_to(all_paths, key)
+                if exception != None and key in exception.keys():
+
+                    connect_to_dict[key], connect_to_at_dict[key] = get_connect_to(all_paths, key, exception)
+                else:
+                    connect_to_dict[key], connect_to_at_dict[key] = get_connect_to(all_paths, key)
 
             if connect_to_dict[key] == -1:
                 path_updated[key] = all_paths[key]
@@ -108,6 +123,26 @@ class TracingReg(object):
         df_paths['path_updated'] = pd.Series(path_updated)
         df_paths['connect_to'] = pd.Series(connect_to_dict)
         df_paths['connect_to_at'] = pd.Series(connect_to_at_dict)
+
+        # check if all paths can link back to soma
+        for row in df_paths.iterrows():
+    
+            idx = row[0]
+            path_id = row[1]['path_id']
+            connect_to = row[1]['connect_to']
+            paths2soma = [connect_to]
+            
+            while connect_to != -1:
+                
+                path_id = connect_to
+                connect_to = df_paths.loc[path_id]['connect_to']
+
+                if connect_to in paths2soma:
+                    paths2soma.append(connect_to)
+                    print("Path [{}] cannot trace back to soma: {}.".format(idx, paths2soma))
+                    break
+                else:
+                    paths2soma.append(connect_to)
 
         connected_by_dict = {}
         connected_by_at_dict = {}
@@ -348,13 +383,19 @@ class TracingReg(object):
             sms, bpts = get_all_segments_and_branchpoints(roi_pos, path_id, df_paths)
 
             if len(bpts) >=1 and bpts != [[]]:
-
                 bpts = np.vstack([p for p in bpts if p != []])
 
             if len(sms) >1:
                 sm = np.vstack(sms[::-1]) # stack all segments into one
             else:
                 sm =sms[0]
+
+            sm = np.vstack([self.info_soma['centroid'], sm])
+            
+            if bpts == [[]]:
+                bpts = np.array([self.info_soma['centroid']]) # soma centroid is always a branchpoint
+            else:
+                bpts = np.vstack([self.info_soma['centroid'], bpts])
 
             branchpoints_dict[idx] = bpts
             segments_dict[idx] = sm
@@ -368,7 +409,7 @@ class TracingReg(object):
         
         self.df_rois = df_rois.copy()
 
-    def plot_roi2soma(self):
+    def plot_all_roi2soma(self):
 
         df_rois = self.df_rois.copy()
 
@@ -394,6 +435,10 @@ class TracingReg(object):
             bpts = df_rois.loc[idx].branchpoints
             roi_pos = df_rois.loc[idx].roi_coords
 
+            # if len(bpts.shape) == 1:
+            #     plt.scatter(bpts[1], bpts[0], color='black', s=80, zorder=10)
+            # else:
+            #     plt.scatter(bpts[:, 1], bpts[:, 0], color='black', s=80, zorder=10) # bpts from roi to soma
             plt.scatter(bpts[:, 1], bpts[:, 0], color='black', s=80, zorder=10) # bpts from roi to soma
             plt.scatter(roi_pos[1], roi_pos[0], color='red', s=180) # roi of interest
 
@@ -409,13 +454,15 @@ class TracingReg(object):
             plt.savefig(img_save_path + '/{}-{}-{}.png'.format(idx, int(rec_id), int(roi_id)))
 
 
-    def get_roi_pairs(self):
+    def get_roipairs(self):
 
         df_roipairs = pd.DataFrame(columns=('pair_id',
                                         'segments_between',
                                         'branchpoints_between'))
 
         indices = np.array(self.df_rois.index)
+
+        print('{} pairs of ROIs are being processed.'.format(np.sum(np.arange(len(indices)))))
 
         i = 0
         for roi_id0 in indices:
@@ -428,5 +475,51 @@ class TracingReg(object):
                 df_roipairs.loc[i] = [set([roi_id0, roi_id1]), sms_between, bpts_between]
                 i+= 1
 
+        print('Done!')
 
         self.df_roipairs = df_roipairs
+
+    def plot_all_roipairs(self):
+
+        indices = np.array(self.df_rois.index)
+        linestack = trace2linestack(self.df_trace, self.meta_trace)
+        idx = 0
+        for roi_id0 in indices:
+
+            indices = np.delete(indices, 0) # delete the first values in every loop
+
+            for roi_id1 in indices:
+                
+                plt.figure(figsize=(16,16))
+                plt.imshow(linestack.sum(2), origin='lower', cmap=plt.cm.binary)
+                plt.imshow(self.info_soma['mask_2d'], origin='lower', cmap=plt.cm.binary, vmin=0.0, alpha=0.3)
+
+                all_roi_pos = np.vstack(self.df_rois.roi_coords)
+                plt.scatter(all_roi_pos[:, 1], all_roi_pos[:, 0], color='gray', s=180, alpha=0.3)
+
+                bpts = self.df_roipairs[self.df_roipairs.pair_id == {roi_id0,roi_id1}].branchpoints_between.values[0]
+                sms = self.df_roipairs[self.df_roipairs.pair_id == {roi_id0,roi_id1}].segments_between.values[0]
+
+                roi0_pos = self.df_rois.loc[roi_id0].roi_coords
+                roi1_pos = self.df_rois.loc[roi_id1].roi_coords
+
+                plt.scatter(roi0_pos[1], roi0_pos[0], s=180, color='red')
+                plt.scatter(roi1_pos[1], roi1_pos[0], s=180, color='red')
+
+                for bpt in bpts:
+                    if len(bpt) != 0:
+                        plt.scatter(bpt[1], bpt[0], s=80, color='black', zorder=10)
+
+                for sm in sms:
+                    plt.plot(sm[:, 1], sm[:, 0], color='red', lw=4)
+
+                scalebar = ScaleBar(self.stack_pixel_size, units='um', location='upper left', box_alpha=0)
+                plt.gca().add_artist(scalebar)
+
+                img_save_path = 'img-roi2roi/' + self.expdate + '/' + self.exp_num
+                if not os.path.exists(img_save_path):
+                        os.makedirs(img_save_path) 
+                
+                plt.savefig(img_save_path + '/{}_{}to{}.png'.format(idx, int(roi_id0), int(roi_id1)))
+
+                idx += 1

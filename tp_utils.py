@@ -439,12 +439,17 @@ def connected_with_soma(all_paths, key, soma_info, threshold=5):
     else:
         return False
 
-def get_connect_to(all_paths, key):
+def get_connect_to(all_paths, key, exception=None):
     
     path = all_paths[key]
     
     sub_paths = all_paths.copy()
     sub_paths.pop(key)
+
+    if exception != None:
+        paths_to_delete = exception[key]
+        for path_to_delte in paths_to_delete:
+            sub_paths.pop(path_to_delte)
     
     def get_target(point, paths):
         # get shortest pair distance between the point of start path and all other paths.
@@ -569,25 +574,104 @@ def get_segment_from_roi_to_nexus_pt(sm_roi_to_soma, nexus_pt):
 
     return sm_roi_to_soma[nexus_pt_loc:]
 
+# def get_info_roi2roi(df_trace, df_paths, df_rois, info_soma, roi_id0, roi_id1):
+    
+#     roi0 = df_rois.loc[roi_id0].roi_coords
+#     roi1 = df_rois.loc[roi_id1].roi_coords
+
+#     roi0_on_path_id = point_on_which_path(df_trace, roi0)
+#     roi1_on_path_id = point_on_which_path(df_trace, roi1)
+
+#     bpts0 = df_rois.loc[roi_id0].branchpoints
+#     bpts1 = df_rois.loc[roi_id1].branchpoints
+
+#     overlap_pts = [pt0 for pt0 in bpts0 for pt1 in bpts1  if (pt0 == pt1).all()]
+    
+#     sm_roi0_to_soma = df_rois.loc[roi_id0].segments
+#     sm_roi1_to_soma = df_rois.loc[roi_id1].segments
+    
+#     # if len(overlap_pts)>0 and overlap_pts != info_soma['centroid']: # intersected at somewhere other than the soma
+        
+#     #     nexus_pt = overlap_pts[0]
+        
+#     #     nexus_loc_in_bpts0 = np.where([(nexus_pt == pt).all() for pt in bpts0])[0][0]
+#     #     nexus_loc_in_bpts1 = np.where([(nexus_pt == pt).all() for pt in bpts1])[0][0]
+
+#     #     sm0 = get_segment_from_roi_to_nexus_pt(sm_roi0_to_soma, nexus_pt)
+#     #     sm1 = get_segment_from_roi_to_nexus_pt(sm_roi1_to_soma, nexus_pt) 
+
+#     #     if sm0.shape[0] > sm1.shape[0]:
+#     #         A = sm0.copy()
+#     #         B = sm1.copy()
+#     #     else:
+#     #         A = sm1.copy()
+#     #         B = sm0.copy()
+
+#     #     loc = np.where((B[-1] == A).all(1))[0] # loc of shorter roi on longer roi
+
+#     #     if len(loc) == 0:
+#     #         sms_between = [sm0, sm1]
+#     #         bpts_between = np.vstack([bpts0[:nexus_loc_in_bpts0+1], bpts1[:nexus_loc_in_bpts1+1]])
+#     #     else:
+#     #         sms_between = [A[loc[0]:]]
+#     #         bpts_between = np.vstack([bpts0[:nexus_loc_in_bpts0], bpts1[:nexus_loc_in_bpts1]])
+    
+#     # else: # not intersected
+
+#     #     sms_between = [sm_roi0_to_soma, sm_roi1_to_soma]
+#     #     bpts_between = np.vstack([bpts0, bpts1])
+
+#     if len(overlap_pts) == 1 and (overlap_pts == info_soma['centroid']).all()   : # not intersected
+
+#         sms_between = [sm_roi0_to_soma, sm_roi1_to_soma]
+#         bpts_between = np.vstack([bpts0, bpts1])
+
+#     else: 
+
+#         nexus_pt = overlap_pts[0]
+        
+#         nexus_loc_in_bpts0 = np.where([(nexus_pt == pt).all() for pt in bpts0])[0][0]
+#         nexus_loc_in_bpts1 = np.where([(nexus_pt == pt).all() for pt in bpts1])[0][0]
+
+#         sm0 = get_segment_from_roi_to_nexus_pt(sm_roi0_to_soma, nexus_pt)
+#         sm1 = get_segment_from_roi_to_nexus_pt(sm_roi1_to_soma, nexus_pt) 
+
+#         if sm0.shape[0] > sm1.shape[0]:
+#             A = sm0.copy()
+#             B = sm1.copy()
+#         else:
+#             A = sm1.copy()
+#             B = sm0.copy()
+
+#         loc = np.where((B[-1] == A).all(1))[0] # loc of shorter roi on longer roi
+
+#         if len(loc) == 0:
+#             sms_between = [sm0, sm1]
+#             bpts_between = np.vstack([bpts0[:nexus_loc_in_bpts0+1], bpts1[:nexus_loc_in_bpts1+1]])
+#         else:
+#             sms_between = [A[loc[0]:]]
+#             bpts_between = np.vstack([bpts0[:nexus_loc_in_bpts0], bpts1[:nexus_loc_in_bpts1]])
+
+#     bpts_between = unique_row(bpts_between)
+
+#     return sms_between, bpts_between
+
 def get_info_roi2roi(df_trace, df_paths, df_rois, info_soma, roi_id0, roi_id1):
     
     roi0 = df_rois.loc[roi_id0].roi_coords
     roi1 = df_rois.loc[roi_id1].roi_coords
 
-    roi0_on_path_id = point_on_which_path(df_trace, roi0)
-    roi1_on_path_id = point_on_which_path(df_trace, roi1)
-
-    bpts0 = df_rois.loc[roi_id0].branchpoints
+    bpts0 = df_rois.loc[roi_id0].branchpoints # the first point is always the soma centroid
     bpts1 = df_rois.loc[roi_id1].branchpoints
 
-    overlap_pts = [pt0 for pt0 in bpts0 for pt1 in bpts1  if (pt0 == pt1).all()]
+    overlap_pts = [pt0 for pt0 in bpts0[1:] for pt1 in bpts1[1:] if (pt0 == pt1).all()] # we don't count the soma centroid here
     
     sm_roi0_to_soma = df_rois.loc[roi_id0].segments
     sm_roi1_to_soma = df_rois.loc[roi_id1].segments
-    
-    if len(overlap_pts)>0: # intersected
-        
-        nexus_pt = overlap_pts[0]
+
+    if len(overlap_pts)>0: # not intersected
+
+        nexus_pt = overlap_pts[0] # nexus point other than the soma
         
         nexus_loc_in_bpts0 = np.where([(nexus_pt == pt).all() for pt in bpts0])[0][0]
         nexus_loc_in_bpts1 = np.where([(nexus_pt == pt).all() for pt in bpts1])[0][0]
@@ -596,29 +680,40 @@ def get_info_roi2roi(df_trace, df_paths, df_rois, info_soma, roi_id0, roi_id1):
         sm1 = get_segment_from_roi_to_nexus_pt(sm_roi1_to_soma, nexus_pt) 
 
         if sm0.shape[0] > sm1.shape[0]:
-            A = sm0.copy()
-            B = sm1.copy()
+            A = sm0.copy() # A is the longer one
+            B = sm1.copy() # B is the shorter one
         else:
             A = sm1.copy()
             B = sm0.copy()
 
         loc = np.where((B[-1] == A).all(1))[0] # loc of shorter roi on longer roi
 
-        if len(loc) == 0:
+        if len(loc) == 0: # the first point of B is not on A, then they are branched out.
             sms_between = [sm0, sm1]
-            bpts_between = np.vstack([bpts0[:nexus_loc_in_bpts0+1], bpts1[:nexus_loc_in_bpts1+1]])
-        else:
+            bpts_between = np.vstack([bpts0[1:nexus_loc_in_bpts0+1], bpts1[1:nexus_loc_in_bpts1+1]])
+        else: # B is within A
             sms_between = [A[loc[0]:]]
-            bpts_between = np.vstack([bpts0[:nexus_loc_in_bpts0], bpts1[:nexus_loc_in_bpts1]])
-    
-    else: # not intersected
+            bpts_between = np.vstack([bpts0[1:nexus_loc_in_bpts0], bpts1[1:nexus_loc_in_bpts1]])
 
-        sm0 = np.vstack([info_soma['centroid'], sm_roi0_to_soma])
-        sm1 = np.vstack([info_soma['centroid'], sm_roi1_to_soma])
-        sms_between = [sm0, sm1]
-        bpts_between = np.vstack([bpts0, info_soma['centroid']]) 
-        bpts_between = np.vstack([bpts_between, bpts1])
+    else: 
+
+        if (roi0 == sm_roi1_to_soma).all(1).any():
+
+            loc = np.where((roi0 == sm_roi1_to_soma).all(1))[0]
+            sms_between = [sm_roi1_to_soma[loc[0]:]]
+            bpts_between = bpts1[1:]
+
+        elif (roi1 == sm_roi0_to_soma).all(1).any():
+
+            loc = np.where((roi1 == sm_roi0_to_soma).all(1))[0]
+            sms_between = [sm_roi0_to_soma[loc[0]:]]
+            bpts_between = bpts0[1:]
+
+        else:
+            sms_between = [sm_roi0_to_soma, sm_roi1_to_soma]
+            bpts_between = np.vstack([bpts0, bpts1])
 
     bpts_between = unique_row(bpts_between)
 
     return sms_between, bpts_between
+
