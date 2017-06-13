@@ -20,7 +20,10 @@ class TracingReg(object):
         self.df_trace, self.meta_trace = read_trace(trace_path)
         self.data_stack = load_h5_data(stack_h5_path)
         self.data_soma = load_h5_data(soma_h5_path)
-        self.info_soma = get_info_soma(self.data_stack['wDataCh0'])
+        if 'adjust' in meta_exp.keys():
+            self.info_soma = get_info_soma(self.data_stack['wDataCh0'], meta_exp['adjust'])
+        else:
+            self.info_soma = get_info_soma(self.data_stack['wDataCh0'])
         self.linestack = trace2linestack(self.df_trace, self.meta_trace)
 
         print('Loaded necessary data.')
@@ -167,7 +170,8 @@ class TracingReg(object):
         self.df_paths.to_pickle(save_dir + '/df_paths.pickle')
 
 
-    def check_rois_on_trace(self, savefig=True):
+    def check_rois_on_trace(self, exception=None, savefig=True):
+
 
         dendrites_h5_paths = self.data_paths['dendrites_h5_paths']
 
@@ -198,6 +202,7 @@ class TracingReg(object):
             d_stack_cx, d_stack_cy = int(stack_soma_cx+d_rel_cx), int(stack_soma_cy+d_rel_cy) 
         
             padding = int(max(d_rec_rot.shape)) 
+
             crop = linestack_xy[d_stack_cx-padding:d_stack_cx+padding, d_stack_cy-padding:d_stack_cy+padding]
 
             scale_down = 0.9
@@ -367,6 +372,7 @@ class TracingReg(object):
         df_paths = self.df_paths.copy()
 
         branchpoints_dict = {}
+        num_branchpoints_dict = {}
         segments_dict = {}
         distance_dendritic_dict = {}
         distance_radial_dict = {}
@@ -395,14 +401,17 @@ class TracingReg(object):
             if bpts == [[]]:
                 bpts = np.array([self.info_soma['centroid']]) # soma centroid is always a branchpoint
             else:
-                bpts = np.vstack([self.info_soma['centroid'], bpts])
+                # bpts = np.vstack([bpts, self.info_soma['centroid']])
+                bpts = np.vstack([self.info_soma['centroid'] , bpts])
 
             branchpoints_dict[idx] = bpts
+            num_branchpoints_dict[idx] = len(bpts)
             segments_dict[idx] = sm
             distance_dendritic_dict[idx] = np.sum(np.sqrt(np.sum((sm[1:] - sm[:-1])**2, 1))) * self.stack_pixel_size
-            distance_radial_dict[idx] = np.sqrt(np.sum((self.info_soma['centroid'] - df_rois.loc[roi_id].roi_coords) ** 2)) * self.stack_pixel_size
+            distance_radial_dict[idx] = np.sqrt(np.sum((self.info_soma['centroid'] - df_rois.loc[idx].roi_coords) ** 2)) * self.stack_pixel_size
         
         df_rois['branchpoints'] = pd.Series(branchpoints_dict)
+        df_rois['num_branchpoints'] = pd.Series(num_branchpoints_dict)
         df_rois['segments'] = pd.Series(segments_dict)
         df_rois['distance_dendritic'] = pd.Series(distance_dendritic_dict)
         df_rois['distance_radial'] = pd.Series(distance_radial_dict)
@@ -458,7 +467,9 @@ class TracingReg(object):
 
         df_roipairs = pd.DataFrame(columns=('pair_id',
                                         'segments_between',
-                                        'branchpoints_between'))
+                                        'branchpoints_between',
+                                        'dendritic_distance_between',
+                                        'num_branchpoints'))
 
         indices = np.array(self.df_rois.index)
 
@@ -472,7 +483,12 @@ class TracingReg(object):
             for roi_id1 in indices:
                 print('Processing pair ({} {})...'.format(roi_id0, roi_id1))
                 sms_between, bpts_between = get_info_roi2roi(self.df_trace, self.df_paths, self.df_rois, self.info_soma, roi_id0, roi_id1)
-                df_roipairs.loc[i] = [set([roi_id0, roi_id1]), sms_between, bpts_between]
+                
+                sm_length = 0
+                for sm in sms_between:
+                    sm_length += np.sum(np.sqrt(np.sum((sm[1:] - sm[:-1])**2, 1))) * self.stack_pixel_size
+
+                df_roipairs.loc[i] = [set([roi_id0, roi_id1]), sms_between, bpts_between, sm_length, len(bpts_between)]
                 i+= 1
 
         print('Done!')
@@ -523,3 +539,7 @@ class TracingReg(object):
                 plt.savefig(img_save_path + '/{}_{}to{}.png'.format(idx, int(roi_id0), int(roi_id1)))
 
                 idx += 1
+
+    def get_df_branchpoints(self):
+
+        self.df_branchpoints = get_df_branchpoints(self.df_trace, self.df_rois, self.df_paths, self.stack_pixel_size)

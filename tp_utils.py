@@ -46,7 +46,8 @@ def get_data_paths(experimenter, expdate):
     for file in os.listdir(celldir + '/Pre'):
         if ('_d' in file.lower() and 'chirp' not in file.lower() and 's_d' not in file.lower()):
             dendrites_h5_paths.append(celldir + '/Pre/' + file)
-            
+    dendrites_h5_paths.sort()
+
     print('\ntrace_path: ', '\n' + trace_path + '\n')
     print('soma_h5_path: ', '\n' + soma_h5_path + '\n')
     print('stack_h5_path: ',  '\n' + stack_h5_path + '\n')
@@ -155,7 +156,7 @@ def trace2linestack(df, meta_info):
 #################################
 
 
-def get_info_soma(stack):
+def get_info_soma(stack, adjust_factor=1):
     """
     Automatic detection of soma centroid, radius and mask from stack data. 
 
@@ -184,7 +185,7 @@ def get_info_soma(stack):
         https://github.com/RivuletStudio/rivuletpy/blob/master/rivuletpy/soma.py
     """
 
-    threshold = np.mean(stack) + np.std(stack)
+    threshold = np.mean(stack) + adjust_factor * np.std(stack)
     bimg = (stack > threshold).astype('int')    
     
     dt = skfmm.distance(bimg, dx=1.1)  # Boundary DT
@@ -574,88 +575,6 @@ def get_segment_from_roi_to_nexus_pt(sm_roi_to_soma, nexus_pt):
 
     return sm_roi_to_soma[nexus_pt_loc:]
 
-# def get_info_roi2roi(df_trace, df_paths, df_rois, info_soma, roi_id0, roi_id1):
-    
-#     roi0 = df_rois.loc[roi_id0].roi_coords
-#     roi1 = df_rois.loc[roi_id1].roi_coords
-
-#     roi0_on_path_id = point_on_which_path(df_trace, roi0)
-#     roi1_on_path_id = point_on_which_path(df_trace, roi1)
-
-#     bpts0 = df_rois.loc[roi_id0].branchpoints
-#     bpts1 = df_rois.loc[roi_id1].branchpoints
-
-#     overlap_pts = [pt0 for pt0 in bpts0 for pt1 in bpts1  if (pt0 == pt1).all()]
-    
-#     sm_roi0_to_soma = df_rois.loc[roi_id0].segments
-#     sm_roi1_to_soma = df_rois.loc[roi_id1].segments
-    
-#     # if len(overlap_pts)>0 and overlap_pts != info_soma['centroid']: # intersected at somewhere other than the soma
-        
-#     #     nexus_pt = overlap_pts[0]
-        
-#     #     nexus_loc_in_bpts0 = np.where([(nexus_pt == pt).all() for pt in bpts0])[0][0]
-#     #     nexus_loc_in_bpts1 = np.where([(nexus_pt == pt).all() for pt in bpts1])[0][0]
-
-#     #     sm0 = get_segment_from_roi_to_nexus_pt(sm_roi0_to_soma, nexus_pt)
-#     #     sm1 = get_segment_from_roi_to_nexus_pt(sm_roi1_to_soma, nexus_pt) 
-
-#     #     if sm0.shape[0] > sm1.shape[0]:
-#     #         A = sm0.copy()
-#     #         B = sm1.copy()
-#     #     else:
-#     #         A = sm1.copy()
-#     #         B = sm0.copy()
-
-#     #     loc = np.where((B[-1] == A).all(1))[0] # loc of shorter roi on longer roi
-
-#     #     if len(loc) == 0:
-#     #         sms_between = [sm0, sm1]
-#     #         bpts_between = np.vstack([bpts0[:nexus_loc_in_bpts0+1], bpts1[:nexus_loc_in_bpts1+1]])
-#     #     else:
-#     #         sms_between = [A[loc[0]:]]
-#     #         bpts_between = np.vstack([bpts0[:nexus_loc_in_bpts0], bpts1[:nexus_loc_in_bpts1]])
-    
-#     # else: # not intersected
-
-#     #     sms_between = [sm_roi0_to_soma, sm_roi1_to_soma]
-#     #     bpts_between = np.vstack([bpts0, bpts1])
-
-#     if len(overlap_pts) == 1 and (overlap_pts == info_soma['centroid']).all()   : # not intersected
-
-#         sms_between = [sm_roi0_to_soma, sm_roi1_to_soma]
-#         bpts_between = np.vstack([bpts0, bpts1])
-
-#     else: 
-
-#         nexus_pt = overlap_pts[0]
-        
-#         nexus_loc_in_bpts0 = np.where([(nexus_pt == pt).all() for pt in bpts0])[0][0]
-#         nexus_loc_in_bpts1 = np.where([(nexus_pt == pt).all() for pt in bpts1])[0][0]
-
-#         sm0 = get_segment_from_roi_to_nexus_pt(sm_roi0_to_soma, nexus_pt)
-#         sm1 = get_segment_from_roi_to_nexus_pt(sm_roi1_to_soma, nexus_pt) 
-
-#         if sm0.shape[0] > sm1.shape[0]:
-#             A = sm0.copy()
-#             B = sm1.copy()
-#         else:
-#             A = sm1.copy()
-#             B = sm0.copy()
-
-#         loc = np.where((B[-1] == A).all(1))[0] # loc of shorter roi on longer roi
-
-#         if len(loc) == 0:
-#             sms_between = [sm0, sm1]
-#             bpts_between = np.vstack([bpts0[:nexus_loc_in_bpts0+1], bpts1[:nexus_loc_in_bpts1+1]])
-#         else:
-#             sms_between = [A[loc[0]:]]
-#             bpts_between = np.vstack([bpts0[:nexus_loc_in_bpts0], bpts1[:nexus_loc_in_bpts1]])
-
-#     bpts_between = unique_row(bpts_between)
-
-#     return sms_between, bpts_between
-
 def get_info_roi2roi(df_trace, df_paths, df_rois, info_soma, roi_id0, roi_id1):
     
     roi0 = df_rois.loc[roi_id0].roi_coords
@@ -717,3 +636,40 @@ def get_info_roi2roi(df_trace, df_paths, df_rois, info_soma, roi_id0, roi_id1):
 
     return sms_between, bpts_between
 
+#####
+
+def get_df_branchpoints(df_trace, df_rois, df_paths, stack_pixel_size):
+    
+    branchpoints_tmp = df_rois.branchpoints.values
+    branchpoints_tmp = np.array([bpt for bpt in branchpoints_tmp if bpt != np.array([])])
+
+    tmp = np.vstack(branchpoints_tmp)
+    
+    all_branchpoints = tmp[np.unique(tmp.view(np.void(tmp.strides[0])),1)[1]]
+    
+    df_branchpoints = pd.DataFrame(columns=(
+                                            'branchpoint_id',
+                                            'branchpoint',
+                                            'branchpoint_to_soma_um'))
+    for i, bpt in enumerate(all_branchpoints):
+        
+        path_id = point_on_which_path(df_trace, bpt)
+        
+        results = distance_point2end(bpt, path_id, df_paths)
+        segment_lengths = results[0]
+        
+
+        while df_paths.loc[path_id].connect_to != -1:
+            
+            point_of_interest = df_paths.loc[path_id].connect_to_at
+            path_id = df_paths.loc[path_id].connect_to
+            
+            results = distance_point2end(point_of_interest, path_id, df_paths)
+            segment_length = results[0]
+            segment_lengths += segment_length
+            
+        df_branchpoints.loc[i] = [i, bpt, segment_lengths * stack_pixel_size] 
+        
+        df_branchpoints['branchpoint_id'] = df_branchpoints['branchpoint_id'].astype(int)
+                
+    return df_branchpoints

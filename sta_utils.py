@@ -43,6 +43,7 @@ def extract_sta_rois(df_rois, roi_id, stimulus_path):
     triggers = data['Triggertimes']
     
     weights = interpolate_weights(data, triggers)
+    weights = weights[:-1]
     lagged_weights = lag_weights(weights, 5)
 
     stimulus = load_h5_data(stimulus_path)['k']
@@ -96,10 +97,10 @@ def get_contour(RF, threshold=2.5, sigma=(1,1)):
     x, y = np.mgrid[:RF.shape[0], :RF.shape[1]]
     c = cntr.Cntr(x,y, RF)
 
-    res = c.trace(RF.mean()+ RF.std() * threshold)
-    # res = c.trace(RF.max() - threshold * RF.std())
+    # res = c.trace(RF.mean()+ RF.std() * threshold)
+    res = c.trace(RF.max() - threshold * RF.std())
     return (res[0][:, 0], res[0][:, 1]), RF
 
 def resize_RF(RF, RF_pixel_size, stack_pixel_size):
     scale_factor = RF_pixel_size/stack_pixel_size
-    return sp.misc.imresize(RF, size=scale_factor, interp='bicubic')
+    return sp.misc.imresize(RF, size=scale_factor, interp='bilinear')
