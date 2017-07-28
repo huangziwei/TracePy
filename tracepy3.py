@@ -188,8 +188,8 @@ class TracingReg(object):
 
     def save_df_paths(self):
 
-        save_dir = '../Local_tmp/' + self.experimenter + '/' + self.expdate + '/' + self.exp_num  
-
+        save_dir = '../IMT_Data/' + self.experimenter + '/' + self.expdate + '/' + self.exp_num  
+        print('Saving df_paths to folder [{}]'.format(save_dir))
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
 
@@ -278,7 +278,7 @@ class TracingReg(object):
 
             plt.grid('off')
             
-            img_save_path = 'offline-data-check/' + self.expdate + '/' + self.cell_id
+            img_save_path = '../ROI_mapping_check/' + self.expdate + '/' + self.cell_id
             
             if not os.path.exists(img_save_path):
                 os.makedirs(img_save_path)
