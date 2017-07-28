@@ -20,36 +20,53 @@ class TracingReg(object):
         self.df_trace, self.meta_trace = read_trace(trace_path)
         self.data_stack = load_h5_data(stack_h5_path)
         self.data_soma = load_h5_data(soma_h5_path)
-        if 'adjust' in meta_exp.keys():
-            self.info_soma = get_info_soma(self.data_stack['wDataCh0'], meta_exp['adjust'])
-        else:
-            self.info_soma = get_info_soma(self.data_stack['wDataCh0'])
+
         self.linestack = trace2linestack(self.df_trace, self.meta_trace)
 
         print('Loaded necessary data.')
 
         self.stack_pixel_size = get_pixel_size_stack(self.data_stack)
 
-        Local_tmp_path = '../Local_tmp/' + self.experimenter + '/' + self.expdate + '/' + self.exp_num
-        if not os.path.exists(Local_tmp_path):
-            os.makedirs(Local_tmp_path)
+        IMT_Data_path = '../IMT_Data/' + self.experimenter + '/' + self.expdate + '/' + self.exp_num
+        if not os.path.exists(IMT_Data_path):
+            os.makedirs(IMT_Data_path)
 
-        if 'df_paths.pickle' in os.listdir(Local_tmp_path):
+        if 'info_soma.pickle' in os.listdir(IMT_Data_path):
+            print('\ninfo_soma is loaded from existing pickle file.')
+
+            with open(IMT_Data_path + '/info_soma.pickle', 'rb') as input_file:
+                self.info_soma = pickle.load(input_file)
+        else:
+            print('\nReading info_soma from data_stack.')
+            if 'adjust' in meta_exp.keys():
+                info_soma = get_info_soma(self.data_stack['wDataCh0'], meta_exp['adjust'])
+            else:
+                info_soma = get_info_soma(self.data_stack['wDataCh0'])
+
+            with open(IMT_Data_path + '/info_soma.pickle', 'wb') as output_file:
+                pickle.dump(info_soma, output_file)
+
+            self.info_soma = info_soma
+
+        if 'df_paths.pickle' in os.listdir(IMT_Data_path):
             print('\ndf_paths is loaded from existing pickle file.')
-            self.df_paths = pd.read_pickle(Local_tmp_path + '/df_paths.pickle')
+            self.df_paths = pd.read_pickle(IMT_Data_path + '/df_paths.pickle')
         else:
             print('\ndf_paths is created from df_trace, quality check is required. \nPlease run .check_paths_quality() and update_df_paths() \nto fix the wrong-directed paths.')
             self.df_paths = get_df_paths(self.df_trace)
 
-        if 'df_rois.pickle' in os.listdir(Local_tmp_path):
+        if 'df_rois_updated.pickle' in os.listdir(IMT_Data_path):
+            print('\ndf_rois_updated is loaded from existing pickle file.')
+            self.df_rois = pd.read_pickle(IMT_Data_path + '/df_rois_updated.pickle')
+        elif 'df_rois.pickle' in os.listdir(IMT_Data_path):
             print('\ndf_rois is loaded from existing pickle file.')
-            self.df_rois = pd.read_pickle(Local_tmp_path + '/df_rois.pickle')
+            self.df_rois = pd.read_pickle(IMT_Data_path + '/df_rois.pickle')
         else:
             print('\nPlease scroll down to df_rois session.')
 
-        if 'df_roipairs.pickle' in os.listdir(Local_tmp_path):
+        if 'df_roipairs.pickle' in os.listdir(IMT_Data_path):
             print('\ndf_roipairs is loaded from existing pickle file.')
-            self.df_roipairs = pd.read_pickle(Local_tmp_path + '/df_roipairs.pickle')
+            self.df_roipairs = pd.read_pickle(IMT_Data_path + '/df_roipairs.pickle')
         else:
             print('\nPlease scroll down to df_roipairs session.')
     
@@ -57,12 +74,17 @@ class TracingReg(object):
 
         df_paths = self.df_paths.copy()
         plt.figure(figsize=(20,20))
+        plt.imshow(self.info_soma['mask_2d'], origin='lower', cmap=plt.cm.binary, vmin=0.0, alpha=0.3) # Soma
+        # plt.scatter(self.info_soma['centroid'][1], self.info_soma['centroid'][1], color='orange', s=280)
         for path_id in df_paths.path_id:
             path = df_paths.loc[path_id].path
             plt.plot(path[:, 1], path[:, 0])
             plt.scatter(path[0][1], path[0][0], color='red', s=140)
-            plt.annotate(path_id, xy=(path[0][1]-2, path[0][0]-2), color='white', fontsize=10)
-        plt.grid('off')
+            plt.quiver(path[0][1], path[0][0], path[0][1] - path[1][1], path[0][0] - path[1][0],  scale=6, scale_units='inches', color='red')
+            plt.annotate(path_id, xy=(path[0][1]-2, path[0][0]-2), color='white', fontsize=8)
+        plt.axis('off')
+        scalebar = ScaleBar(self.stack_pixel_size, units='um', location='upper left', box_alpha=0)
+        plt.gca().add_artist(scalebar)
 
     def check_paths_updated_quality(self):
 
@@ -72,8 +94,12 @@ class TracingReg(object):
             path = df_paths.loc[path_id].path_updated
             plt.plot(path[:, 1], path[:, 0])
             plt.scatter(path[0][1], path[0][0], color='red', s=140)
-            plt.annotate(path_id, xy=(path[0][1]-2, path[0][0]-2), color='white', fontsize=10)
-        plt.grid('off')
+            plt.quiver(path[0][1], path[0][0], path[0][1] - path[1][1], path[0][0] - path[1][0],  scale=6, scale_units='inches', color='red')
+            plt.annotate(path_id, xy=(path[0][1]-2, path[0][0]-2), color='white', fontsize=8)
+ 
+        plt.axis('off')
+        scalebar = ScaleBar(self.stack_pixel_size, units='um', location='upper left', box_alpha=0)
+        plt.gca().add_artist(scalebar)
     
     def fix_df_paths(self, path_ids):
 
@@ -170,7 +196,7 @@ class TracingReg(object):
         self.df_paths.to_pickle(save_dir + '/df_paths.pickle')
 
 
-    def check_rois_on_trace(self, exception=None, savefig=True):
+    def check_rois_on_trace(self, savefig=True):
 
 
         dendrites_h5_paths = self.data_paths['dendrites_h5_paths']
@@ -183,12 +209,12 @@ class TracingReg(object):
                                    'roi_id', 
                                    'recording_center', 
                                    'roi_coords_stack_xy',
-                                   'recording_path'
+                                   'filename'
                                    ))
 
         idx = 0
-        rec_id = 0
-        roi_id = 0
+        rec_id = 1
+        roi_id = 1
 
         for dendrite_h5_path in dendrites_h5_paths:
 
@@ -272,10 +298,112 @@ class TracingReg(object):
                 idx += 1
                 roi_id += 1
 
-            roi_id= 0
+            roi_id = 1
             rec_id += 1
 
         self.df_rois = df_rois
+
+    def manually_adjust_roi_coord(self, rec_id, offset, adjust=False):
+        
+        idx_subframe = self.df_rois[self.df_rois['recording_id'] == rec_id]['recording_center'].index.tolist()
+        
+        dendrites_h5_paths = self.data_paths['dendrites_h5_paths']
+        dendrite_h5_path = dendrites_h5_paths[rec_id-1]
+        
+        (stack_soma_cx, stack_soma_cy, stack_soma_cz) = self.info_soma['centroid']
+        linestack = trace2linestack(self.df_trace, self.meta_trace)
+        linestack_xy = linestack.mean(2)
+
+
+        d = load_h5_data(dendrite_h5_path)
+        d_rec_rot = rotate_rec(d, self.data_stack)
+        d_rois_rot, roi_coords_rot = rotate_roi(d, self.data_stack)
+
+        dname = dendrite_h5_path.split('/')[-1].split('_')[2]
+
+
+        d_rel_cy, d_rel_cx, d_rel_cz = rel_position_um(self.data_soma, d) / self.stack_pixel_size
+        d_stack_cx, d_stack_cy = int(stack_soma_cx+d_rel_cx), int(stack_soma_cy+d_rel_cy) 
+
+        padding = int(max(d_rec_rot.shape)) 
+
+        crop = linestack_xy[d_stack_cx-padding:d_stack_cx+padding, d_stack_cy-padding:d_stack_cy+padding]
+
+        scale_down = 0.9
+        while 0 in np.unique(crop.shape):
+            padding = int(scale_down * max(d_rec_rot.shape))
+            crop = linestack_xy[d_stack_cx-padding:d_stack_cx+padding, d_stack_cy-padding:d_stack_cy+padding]
+            scale_down *= scale_down
+
+        d_rec_rot_x0, d_rec_rot_y0 = roi_matching(crop, d_rec_rot) # coords of roi in crop
+        roi_coords_crop = roi_coords_rot + np.array([d_rec_rot_x0, d_rec_rot_y0])
+        rec_center_crop = np.array([d_rec_rot.shape[0]/2,  d_rec_rot.shape[1]/2]) + np.array([d_rec_rot_x0, d_rec_rot_y0])
+
+        roi_coords_crop += offset
+        rec_center_crop += offset
+        d_rec_rot_x0 += offset[0]
+        d_rec_rot_y0 += offset[1]
+
+        roi_coords_stack_xy = roi_coords_crop + np.array([d_stack_cx-padding, d_stack_cy-padding])
+        rec_center_stack_xy = rec_center_crop + np.array([d_stack_cx-padding, d_stack_cy-padding])
+
+        # roi_coords_stack_xy 
+
+
+        ###################################
+        ## Plot and check ROIs on traces ##
+        ################################### 
+
+        plt.figure(figsize=(32*3/5,32))
+
+        ax1 = plt.subplot2grid((5,3), (0,0), rowspan=2, colspan=1) # recording
+        ax2 = plt.subplot2grid((5,3), (0,1), rowspan=2, colspan=2) # crop
+        ax3 = plt.subplot2grid((5,3), (2,0), rowspan=3, colspan=3) # whole
+
+        ax1.imshow(d_rec_rot, origin='lower')
+        ax1.scatter(roi_coords_rot[:, 1], roi_coords_rot[:, 0], color='orange', s=80)
+
+        ax2.imshow(crop, origin='lower')
+        h_d_rec_rot, w_d_rec_rot = d_rec_rot.shape
+        rect_d_rec_rot = plt.Rectangle((d_rec_rot_y0, d_rec_rot_x0), w_d_rec_rot, h_d_rec_rot , edgecolor='r', facecolor='none', linewidth=2)
+        ax2.add_patch(rect_d_rec_rot)
+        ax2.scatter(roi_coords_crop[:, 1], roi_coords_crop[:, 0], s=80, color='orange')
+
+        ax3.imshow(linestack.mean(2), origin='lower', cmap=plt.cm.binary_r)
+        hd, wd = crop.shape
+        rect_crop = plt.Rectangle((d_stack_cy-padding, d_stack_cx-padding), wd, hd, edgecolor='r', facecolor='none', linewidth=2)
+        h_d_rec_rot, w_d_rec_rot = d_rec_rot.shape
+        rect_crop_d_rec = plt.Rectangle((d_rec_rot_y0 + d_stack_cy-padding, d_rec_rot_x0 + d_stack_cx-padding), w_d_rec_rot, h_d_rec_rot, edgecolor='r', facecolor='none', linewidth=2)
+        ax3.add_patch(rect_crop_d_rec)
+        ax3.add_patch(rect_crop)
+        ax3.scatter(roi_coords_crop[:, 1]+d_stack_cy-padding, roi_coords_crop[:, 0]+d_stack_cx-padding, s=80, color='orange')
+        ax3.annotate(dname, xy=(d_rec_rot_y0 + d_stack_cy-padding-10, d_rec_rot_x0 + d_stack_cx-padding-10), color='white')
+
+        plt.suptitle('{}: {}'.format(self.expdate, dname))
+
+        plt.grid('off')
+        
+        #############
+        
+        if not adjust:
+            print('If this looks right, set `adjust` to True to adjust the ROI coordinates.')
+
+        else:
+            print('The ROI coordinates have been adjusted!')
+            d_coords_xy = np.round(roi_coords_stack_xy).astype(int)
+
+            dict_coords = {}
+            dict_rec_center = {}
+            # print(idx_subframe)
+            for iii, idx in enumerate(idx_subframe):
+                # print(iii, idx, len(d_coords_xy))
+                dict_coords[idx] = d_coords_xy[iii]
+                dict_rec_center[idx] = np.repeat(rec_center_stack_xy.reshape(1,2), len(idx_subframe), axis=0)[iii]
+
+            self.df_rois.set_value(idx_subframe, 'recording_center', dict_rec_center)
+            self.df_rois.set_value(idx_subframe, 'roi_coords_stack_xy', dict_coords)  
+
+
 
     def calibrate_rois(self):
 
@@ -294,9 +422,9 @@ class TracingReg(object):
 
             df_sub = self.df_rois[self.df_rois['recording_id'] == rec_id]
 
-            recording_path = np.unique(df_sub['recording_path'])[0]
+            filename = np.unique(df_sub['filename'])[0]
 
-            d = load_h5_data(self.celldir + '/Pre/' + recording_path)
+            d = load_h5_data(self.celldir + '/Pre/' + filename)
             linestack = trace2linestack(self.df_trace, self.meta_trace)
 
             for row in df_sub.iterrows():
@@ -333,10 +461,10 @@ class TracingReg(object):
                 
                 Triggervalues_dict[idx] = d['Triggervalues']
                 Triggertimes_dict[idx] = d['Triggertimes']
-                Tracetimes0_dict[idx] = d['Tracetimes0'][:, roi_id]
-                Traces0_raw_dict[idx] = d['Traces0_raw'][:, roi_id]
-                rf_s_dict[idx] = d['STRF_SVD_Space0'][:, roi_id]
-                rf_t_dict[idx] = d['STRF_SVD_Time0'][:, roi_id]
+                Tracetimes0_dict[idx] = d['Tracetimes0'][:, roi_id-1]
+                Traces0_raw_dict[idx] = d['Traces0_raw'][:, roi_id-1]
+                rf_s_dict[idx] = d['STRF_SVD_Space0'][:, roi_id-1]
+                rf_t_dict[idx] = d['STRF_SVD_Time0'][:, roi_id-1]
 
         self.df_rois['roi_coords'] = pd.Series(roi_coords_dict)
         self.df_rois['path_id'] = pd.Series(path_id_dict)
@@ -352,8 +480,11 @@ class TracingReg(object):
 
         linestack = trace2linestack(self.df_trace, self.meta_trace)
 
+        linestack_xy = linestack.sum(2)
+        linestack_xy[linestack_xy != 0] = 1
+
         plt.figure(figsize=(16,16))
-        plt.imshow(linestack.sum(2), origin='lower', cmap=plt.cm.binary)
+        plt.imshow(linestack_xy, origin='lower', cmap=plt.cm.binary)
 
         plt.imshow(self.info_soma['mask_2d'], origin='lower', cmap=plt.cm.binary, vmin=0.0, alpha=0.3)
 
@@ -401,8 +532,8 @@ class TracingReg(object):
             if bpts == [[]]:
                 bpts = np.array([self.info_soma['centroid']]) # soma centroid is always a branchpoint
             else:
-                # bpts = np.vstack([bpts, self.info_soma['centroid']])
-                bpts = np.vstack([self.info_soma['centroid'] , bpts])
+                bpts = np.vstack([bpts, self.info_soma['centroid']]) # soma centroid at the last pos
+                # bpts = np.vstack([self.info_soma['centroid'] , bpts]) # soma centroid at the first pos
 
             branchpoints_dict[idx] = bpts
             num_branchpoints_dict[idx] = len(bpts)
@@ -469,7 +600,11 @@ class TracingReg(object):
                                         'segments_between',
                                         'branchpoints_between',
                                         'dendritic_distance_between',
-                                        'num_branchpoints'))
+                                        'num_branchpoints',
+                                        'overlap_contour',
+                                        'overlap_RFsize',
+                                        'smaller_RFsize',
+                                        'overlap_index'))
 
         indices = np.array(self.df_rois.index)
 
@@ -481,6 +616,7 @@ class TracingReg(object):
             indices = np.delete(indices, 0) # delete the first values in every loop
 
             for roi_id1 in indices:
+                
                 print('Processing pair ({} {})...'.format(roi_id0, roi_id1))
                 sms_between, bpts_between = get_info_roi2roi(self.df_trace, self.df_paths, self.df_rois, self.info_soma, roi_id0, roi_id1)
                 
@@ -488,7 +624,24 @@ class TracingReg(object):
                 for sm in sms_between:
                     sm_length += np.sum(np.sqrt(np.sum((sm[1:] - sm[:-1])**2, 1))) * self.stack_pixel_size
 
-                df_roipairs.loc[i] = [set([roi_id0, roi_id1]), sms_between, bpts_between, sm_length, len(bpts_between)]
+
+                cntr0 = self.df_rois.loc[roi_id0].RF_contour
+                cntr1 = self.df_rois.loc[roi_id1].RF_contour
+                num_intp = 100
+                overlap_cntr, RFsizes = get_inner_cntr(cntr0, cntr1, num_intp, self.stack_pixel_size)
+                overlap_RFsize = RFsizes['overlap_size']
+                smaller_RFsize = RFsizes['smaller_size']
+                overlap_index = overlap_RFsize/smaller_RFsize
+
+                df_roipairs.loc[i] = [set([roi_id0, roi_id1]), 
+                                        sms_between, 
+                                        bpts_between, 
+                                        sm_length, 
+                                        len(bpts_between), 
+                                        overlap_cntr,
+                                        overlap_RFsize,
+                                        smaller_RFsize,
+                                        overlap_index]
                 i+= 1
 
         print('Done!')
@@ -542,4 +695,5 @@ class TracingReg(object):
 
     def get_df_branchpoints(self):
 
-        self.df_branchpoints = get_df_branchpoints(self.df_trace, self.df_rois, self.df_paths, self.stack_pixel_size)
+        self.df_branchpoints = get_df_branchpoints(self.df_trace, self.df_rois, self.df_paths, self.stack_pixel_size, self.info_soma)
+

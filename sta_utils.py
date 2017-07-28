@@ -58,14 +58,14 @@ def extract_sta_rois(df_rois, roi_id, stimulus_path):
     
     return U[:, 0].reshape(15,20)
 
-def extract_sta_soma(soma_data):
+def extract_sta_soma(soma_data, stimulus_path):
     
     triggers = soma_data['Triggertimes']
     triggers += -0.1
     weights = interpolate_weights(soma_data, triggers)
     lagged_weights = lag_weights(weights, 5)
 
-    stimulus = load_h5_data('/home/Data/Ran/noise.h5')['k']
+    stimulus = load_h5_data(stimulus_path)['k']
     stimulus = stimulus.reshape(15*20, -1)
     offset = 0
     stimulus = stimulus[:, offset:len(weights)+offset]

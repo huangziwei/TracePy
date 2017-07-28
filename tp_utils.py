@@ -583,7 +583,7 @@ def get_info_roi2roi(df_trace, df_paths, df_rois, info_soma, roi_id0, roi_id1):
     bpts0 = df_rois.loc[roi_id0].branchpoints # the first point is always the soma centroid
     bpts1 = df_rois.loc[roi_id1].branchpoints
 
-    overlap_pts = [pt0 for pt0 in bpts0[1:] for pt1 in bpts1[1:] if (pt0 == pt1).all()] # we don't count the soma centroid here
+    overlap_pts = [pt0 for pt0 in bpts0[:-1] for pt1 in bpts1[:-1] if (pt0 == pt1).all()] # we don't count the soma centroid here
     
     sm_roi0_to_soma = df_rois.loc[roi_id0].segments
     sm_roi1_to_soma = df_rois.loc[roi_id1].segments
@@ -638,38 +638,192 @@ def get_info_roi2roi(df_trace, df_paths, df_rois, info_soma, roi_id0, roi_id1):
 
 #####
 
-def get_df_branchpoints(df_trace, df_rois, df_paths, stack_pixel_size):
+def get_df_branchpoints(df_trace, df_rois, df_paths, stack_pixel_size, info_soma):
     
     branchpoints_tmp = df_rois.branchpoints.values
     branchpoints_tmp = np.array([bpt for bpt in branchpoints_tmp if bpt != np.array([])])
 
     tmp = np.vstack(branchpoints_tmp)
     
-    all_branchpoints = tmp[np.unique(tmp.view(np.void(tmp.strides[0])),1)[1]]
-    
-    df_branchpoints = pd.DataFrame(columns=(
-                                            'branchpoint_id',
-                                            'branchpoint',
-                                            'branchpoint_to_soma_um'))
-    for i, bpt in enumerate(all_branchpoints):
-        
-        path_id = point_on_which_path(df_trace, bpt)
-        
-        results = distance_point2end(bpt, path_id, df_paths)
-        segment_lengths = results[0]
-        
+    all_branchpoints = unique_row(branchpoints_tmp)
+    all_branchpoints = np.array([bpt for bpt in all_branchpoints if bpt != info_soma['centroid']])
 
-        while df_paths.loc[path_id].connect_to != -1:
-            
-            point_of_interest = df_paths.loc[path_id].connect_to_at
-            path_id = df_paths.loc[path_id].connect_to
-            
-            results = distance_point2end(point_of_interest, path_id, df_paths)
-            segment_length = results[0]
-            segment_lengths += segment_length
-            
-        df_branchpoints.loc[i] = [i, bpt, segment_lengths * stack_pixel_size] 
+    df_branchpoints = pd.DataFrame(columns=('branchpoint_id',
+                                            'branchpoint',
+                                            'branchpoint_order'))
+    idx = 0
+    for row in t.df_rois.iterrows():
         
-        df_branchpoints['branchpoint_id'] = df_branchpoints['branchpoint_id'].astype(int)
+        i = row[0]
+        bpts = row[1]['branchpoints'][::-1]
+        
+        
+        for j, bpt in enumerate(bpts):
+            
+            bpts_saved = df_branchpoints.branchpoint.tolist()
+            
+            if len(bpts_saved) == 0:
+            
+                if (bpt == bpts_saved):
+                    continue
+                else:
+                    df_branchpoints.loc[idx] = [idx, bpt, j]
+                    idx +=1
+            else:
+                if (bpt == bpts_saved).all(1).any():
+                    continue
+                else:
+                    df_branchpoints.loc[idx] = [idx, bpt, j]
+                    idx +=1
                 
     return df_branchpoints
+
+
+## get RF overlap
+import cv2
+from shapely.geometry import Polygon
+
+def point_distance(pt0, pt1):
+    if pt1.shape != (2,):
+        return np.sqrt(np.sum((pt0 - pt1) ** 2, 1))
+    else:
+        return np.sqrt(np.sum((pt0 - pt1) ** 2))
+
+def check_cntr_interception(sCntr, bCntr):
+    
+    sCntrPoly = Polygon(sCntr)
+    bCntrPoly = Polygon(bCntr)
+    
+    return sCntrPoly.intersects(bCntrPoly)
+
+def interpolate_cntr(cntr, n=10):
+    
+    if n > 2:
+    
+        x = cntr[:, 0]
+        y = cntr[:, 1]
+
+        x_intep = []
+        for i in range(len(x)-1):
+            x_intep.append(np.linspace(x[i], x[i+1], n))
+        x_intep = np.hstack(x_intep)   
+
+        y_intep = []
+        for j in range(len(y)-1):
+            y_intep.append(np.linspace(y[j], y[j+1], n))
+        y_intep = np.hstack(y_intep)
+
+        return np.vstack([x_intep, y_intep]).T
+    elif n <=2:
+        return cntr
+
+
+
+def get_inner_cntr(cntr0, cntr1, n, stack_pixel_size): 
+
+    cntr0 = interpolate_cntr(cntr0, n)
+    cntr1 = interpolate_cntr(cntr1, n)
+    
+#     print(cntr0.shape)
+    
+    if cntr0.shape[0] > cntr1.shape[0]:
+        sCntr = cntr1.copy()
+        bCntr = cntr0.copy()
+    else:
+        sCntr = cntr0.copy()
+        bCntr = cntr1.copy()
+
+    if check_cntr_interception(sCntr, bCntr):
+    
+        center = (sCntr.mean(0) + bCntr.mean(0) ) / 2
+
+        num_sCntr_pt = sCntr.shape[0]
+
+        inner_pts = []
+
+        for sIdx in np.arange(num_sCntr_pt):
+
+            sCntr_pt = sCntr[sIdx]
+
+            bIdx = np.argmin(point_distance(sCntr_pt, bCntr))
+            bCntr_pt = bCntr[bIdx]
+            
+            sCntr_pt2center = point_distance(sCntr_pt, center)
+            bCntr_pt2center = point_distance(bCntr_pt, center)
+
+            if  sCntr_pt2center > bCntr_pt2center:
+                inner_pt = bCntr_pt
+                outer_pt = sCntr_pt
+            else:
+                inner_pt = sCntr_pt
+                outer_pt = bCntr_pt
+            
+
+            if inner_pts != []:
+
+                if not any((inner_pt == pt).all() for pt in inner_pts):
+
+                    btw_dis = point_distance(inner_pt, inner_pts[-1])
+
+                    if btw_dis > sCntr_pt2center: # if btw_dis is larger then the sCntr_pt2center,
+                                                  # then it means the inner_pt is wrong, should be replaced by outer_pt  
+                        inner_pts.append(outer_pt)
+                    else:
+                        inner_pts.append(inner_pt)
+
+            else:
+#                 print(sIdx, len(inner_pts) ,inner_pt)
+                inner_pts.append(inner_pt)
+    
+        overlap_cntr = np.vstack(inner_pts)
+
+        btw_dis = np.sqrt(((overlap_cntr[:-1] - overlap_cntr[1:])**2).sum(1))
+        points_to_delete = np.where(btw_dis>10)[0]
+        num_points_to_delete = len(points_to_delete)
+
+        if num_points_to_delete > 2:
+            if np.mod(num_points_to_delete, 2) == 1:
+                points_to_delete = points_to_delete[:-1]
+
+            points_to_delete = points_to_delete.reshape(int(num_points_to_delete/2) , 2)
+            for idx_pair_of_points in range(points_to_delete.shape[0]):
+                start_point = points_to_delete[idx_pair_of_points][0] + 1
+                end_point = points_to_delete[idx_pair_of_points][1] + 1
+                print(start_point, end_point)
+
+                if len(range(start_point,end_point))>20:
+                    overlap_cntr = np.delete(overlap_cntr, [start_point,end_point], axis=0)
+                else:
+                    overlap_cntr = np.delete(overlap_cntr, range(start_point,end_point), axis=0)
+        elif num_points_to_delete==2:
+            start_point = points_to_delete[0] + 1
+            end_point = points_to_delete[1] + 1
+            if len(range(start_point,end_point))>20:
+                overlap_cntr = np.delete(overlap_cntr, [start_point,end_point], axis=0)
+            else:
+                overlap_cntr = np.delete(overlap_cntr, range(start_point,end_point), axis=0)
+        else:
+            overlap_cntr = overlap_cntr
+        
+        overlap_size = cv2.contourArea(overlap_cntr.astype(np.float32)) * (stack_pixel_size * stack_pixel_size)/1000 
+        
+    else:
+        overlap_cntr = []
+        overlap_size = 0
+
+    cntr0_size = cv2.contourArea(cntr0.astype(np.float32)) * (stack_pixel_size * stack_pixel_size)/1000 
+    cntr1_size = cv2.contourArea(cntr1.astype(np.float32)) * (stack_pixel_size * stack_pixel_size)/1000 
+    
+    if cntr0_size > cntr1_size:
+        bigger_size = cntr0_size
+        smaller_size = cntr1_size
+    else:
+        bigger_size = cntr1_size
+        smaller_size = cntr0_size        
+
+    return overlap_cntr, {'overlap_size': overlap_size,
+                          'cntr0_size': cntr0_size,
+                          'cntr1_size': cntr1_size,
+                          'bigger_size': bigger_size,
+                          'smaller_size': smaller_size}
+        
