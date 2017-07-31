@@ -298,8 +298,9 @@ def rotate_roi(rec, stack):
     ang_rad = ang_deg * np.pi / 180 # ratoate angle (radian)
     
     rec_rois = resize_roi(rec, stack)
-    rec_rois_rot = scipy.ndimage.interpolation.rotate(rec_rois, ang_deg)
-    
+    rec_rois_rot = scipy.ndimage.interpolation.rotate(rec_rois, ang_deg, cval=255, order=0)
+    rec_rois_rot = np.ma.masked_where(rec_rois_rot == 255, rec_rois_rot)
+
     (shift_x, shift_y) = 0.5 * (np.array(rec_rois_rot.shape) - np.array(rec_rois.shape))
     (cx, cy) = 0.5 * np.array(rec_rois.shape)
     

@@ -227,7 +227,7 @@ class TracingReg(object):
             d_rel_cy, d_rel_cx, d_rel_cz = rel_position_um(self.data_soma, d) / self.stack_pixel_size
             d_stack_cx, d_stack_cy = int(stack_soma_cx+d_rel_cx), int(stack_soma_cy+d_rel_cy) 
         
-            padding = int(max(d_rec_rot.shape)) 
+            padding = int(max(d_rec_rot.shape) * 0.95) 
 
             crop = linestack_xy[d_stack_cx-padding:d_stack_cx+padding, d_stack_cy-padding:d_stack_cy+padding]
 
@@ -237,11 +237,18 @@ class TracingReg(object):
                 crop = linestack_xy[d_stack_cx-padding:d_stack_cx+padding, d_stack_cy-padding:d_stack_cy+padding]
                 scale_down *= scale_down
 
-            d_rec_rot_x0, d_rec_rot_y0 = roi_matching(crop, d_rec_rot) # coords of roi in crop
+            d_rec_rot_x0, d_rec_rot_y0 = roi_matching(crop, d_rec_rot) # the origin of the rotated rec region in the crop region 
+            
             roi_coords_crop = roi_coords_rot + np.array([d_rec_rot_x0, d_rec_rot_y0])
+            d_rois_rot_crop = np.pad(d_rois_rot, pad_width=((d_rec_rot_x0, 0), (d_rec_rot_y0, 0)), mode='constant', constant_values=255)
+            d_rois_rot_crop = np.ma.masked_where(d_rois_rot_crop == 255, d_rois_rot_crop)
+
             rec_center_crop = np.array([d_rec_rot.shape[0]/2,  d_rec_rot.shape[1]/2]) + np.array([d_rec_rot_x0, d_rec_rot_y0])
 
             roi_coords_stack_xy = roi_coords_crop + np.array([d_stack_cx-padding, d_stack_cy-padding])
+            d_rois_rot_stack_xy = np.pad(d_rois_rot_crop, pad_width=((d_stack_cx-padding, 0), (d_stack_cy-padding, 0)), mode='constant', constant_values=255)
+            d_rois_rot_stack_xy = np.ma.masked_where(d_rois_rot_stack_xy == 255, d_rois_rot_stack_xy)
+
             rec_center_stack_xy = rec_center_crop + np.array([d_stack_cx-padding, d_stack_cy-padding])
 
 
@@ -256,25 +263,33 @@ class TracingReg(object):
             ax3 = plt.subplot2grid((5,3), (2,0), rowspan=3, colspan=3)
 
             ax1.imshow(d_rec_rot, origin='lower')
+            ax1.imshow(d_rois_rot, origin='lower', cmap=plt.cm.viridis)
             ax1.scatter(roi_coords_rot[:, 1], roi_coords_rot[:, 0], color='orange', s=80)
+            ax1.set_title('Recording Region', fontsize=24)
 
             ax2.imshow(crop, origin='lower')
             h_d_rec_rot, w_d_rec_rot = d_rec_rot.shape
             rect_d_rec_rot = plt.Rectangle((d_rec_rot_y0, d_rec_rot_x0), w_d_rec_rot, h_d_rec_rot , edgecolor='r', facecolor='none', linewidth=2)
             ax2.add_patch(rect_d_rec_rot)
+            ax2.imshow(d_rois_rot_crop, origin='lower', cmap=plt.cm.viridis)
             ax2.scatter(roi_coords_crop[:, 1], roi_coords_crop[:, 0], s=80, color='orange')
+            ax2.set_title('Cropped Region', fontsize=24)
 
-            ax3.imshow(linestack.mean(2), origin='lower', cmap=plt.cm.binary_r)
+            ax3.imshow(linestack.mean(2), origin='lower', cmap=plt.cm.binary)
+            ax3.imshow(self.info_soma['mask_2d'], origin='lower', cmap=plt.cm.binary, vmin=0.0, alpha=0.3)
+
             hd, wd = crop.shape
             rect_crop = plt.Rectangle((d_stack_cy-padding, d_stack_cx-padding), wd, hd, edgecolor='r', facecolor='none', linewidth=2)
             h_d_rec_rot, w_d_rec_rot = d_rec_rot.shape
             rect_crop_d_rec = plt.Rectangle((d_rec_rot_y0 + d_stack_cy-padding, d_rec_rot_x0 + d_stack_cx-padding), w_d_rec_rot, h_d_rec_rot, edgecolor='r', facecolor='none', linewidth=2)
             ax3.add_patch(rect_crop_d_rec)
             ax3.add_patch(rect_crop)
+            ax3.imshow(d_rois_rot_stack_xy, origin='lower', cmap=plt.cm.viridis)
             ax3.scatter(roi_coords_crop[:, 1]+d_stack_cy-padding, roi_coords_crop[:, 0]+d_stack_cx-padding, s=80, color='orange')
             ax3.annotate(dname, xy=(d_rec_rot_y0 + d_stack_cy-padding-10, d_rec_rot_x0 + d_stack_cx-padding-10), color='white')
+            ax3.set_title('ROIs on Cell Morpholoy', fontsize=24)
 
-            plt.suptitle('{}: {}'.format(self.expdate, dname))
+            plt.suptitle('{}: {}'.format(self.expdate, dname), fontsize=28)
 
             plt.grid('off')
             
@@ -335,14 +350,13 @@ class TracingReg(object):
             crop = linestack_xy[d_stack_cx-padding:d_stack_cx+padding, d_stack_cy-padding:d_stack_cy+padding]
             scale_down *= scale_down
 
-        d_rec_rot_x0, d_rec_rot_y0 = roi_matching(crop, d_rec_rot) # coords of roi in crop
+        d_rec_rot_x0, d_rec_rot_y0 = roi_matching(crop, d_rec_rot) # the origin of the rotated rec region in the crop region 
+        d_rec_rot_x0 += offset[0]
+        d_rec_rot_y0 += offset[1] # update the origin of the rotated rec region in the crop region with the new offset
+
         roi_coords_crop = roi_coords_rot + np.array([d_rec_rot_x0, d_rec_rot_y0])
         rec_center_crop = np.array([d_rec_rot.shape[0]/2,  d_rec_rot.shape[1]/2]) + np.array([d_rec_rot_x0, d_rec_rot_y0])
 
-        roi_coords_crop += offset
-        rec_center_crop += offset
-        d_rec_rot_x0 += offset[0]
-        d_rec_rot_y0 += offset[1]
 
         roi_coords_stack_xy = roi_coords_crop + np.array([d_stack_cx-padding, d_stack_cy-padding])
         rec_center_stack_xy = rec_center_crop + np.array([d_stack_cx-padding, d_stack_cy-padding])
