@@ -264,6 +264,7 @@ class TracingReg(object):
 
             ax1.imshow(d_rec_rot, origin='lower')
             ax1.imshow(d_rois_rot, origin='lower', cmap=plt.cm.viridis)
+            ax1.grid('off')
             ax1.scatter(roi_coords_rot[:, 1], roi_coords_rot[:, 0], color='orange', s=80)
             ax1.set_title('Recording Region', fontsize=24)
 
@@ -274,6 +275,7 @@ class TracingReg(object):
             ax2.imshow(d_rois_rot_crop, origin='lower', cmap=plt.cm.viridis)
             ax2.scatter(roi_coords_crop[:, 1], roi_coords_crop[:, 0], s=80, color='orange')
             ax2.set_title('Cropped Region', fontsize=24)
+            ax2.grid('off')
 
             ax3.imshow(linestack.mean(2), origin='lower', cmap=plt.cm.binary)
             ax3.imshow(self.info_soma['mask_2d'], origin='lower', cmap=plt.cm.binary, vmin=0.0, alpha=0.3)
@@ -288,10 +290,10 @@ class TracingReg(object):
             ax3.scatter(roi_coords_crop[:, 1]+d_stack_cy-padding, roi_coords_crop[:, 0]+d_stack_cx-padding, s=80, color='orange')
             ax3.annotate(dname, xy=(d_rec_rot_y0 + d_stack_cy-padding-10, d_rec_rot_x0 + d_stack_cx-padding-10), color='white')
             ax3.set_title('ROIs on Cell Morpholoy', fontsize=24)
+            ax3.grid('off')
 
             plt.suptitle('{}: {}'.format(self.expdate, dname), fontsize=28)
 
-            plt.grid('off')
             
             img_save_path = '../ROI_mapping_check/' + self.expdate + '/' + self.cell_id
             
@@ -355,13 +357,16 @@ class TracingReg(object):
         d_rec_rot_y0 += offset[1] # update the origin of the rotated rec region in the crop region with the new offset
 
         roi_coords_crop = roi_coords_rot + np.array([d_rec_rot_x0, d_rec_rot_y0])
+        d_rois_rot_crop = np.pad(d_rois_rot, pad_width=((d_rec_rot_x0, 0), (d_rec_rot_y0, 0)), mode='constant', constant_values=255)
+        d_rois_rot_crop = np.ma.masked_where(d_rois_rot_crop == 255, d_rois_rot_crop)
+
         rec_center_crop = np.array([d_rec_rot.shape[0]/2,  d_rec_rot.shape[1]/2]) + np.array([d_rec_rot_x0, d_rec_rot_y0])
 
-
         roi_coords_stack_xy = roi_coords_crop + np.array([d_stack_cx-padding, d_stack_cy-padding])
-        rec_center_stack_xy = rec_center_crop + np.array([d_stack_cx-padding, d_stack_cy-padding])
+        d_rois_rot_stack_xy = np.pad(d_rois_rot_crop, pad_width=((d_stack_cx-padding, 0), (d_stack_cy-padding, 0)), mode='constant', constant_values=255)
+        d_rois_rot_stack_xy = np.ma.masked_where(d_rois_rot_stack_xy == 255, d_rois_rot_stack_xy)
 
-        # roi_coords_stack_xy 
+        rec_center_stack_xy = rec_center_crop + np.array([d_stack_cx-padding, d_stack_cy-padding])
 
 
         ###################################
@@ -370,30 +375,38 @@ class TracingReg(object):
 
         plt.figure(figsize=(32*3/5,32))
 
-        ax1 = plt.subplot2grid((5,3), (0,0), rowspan=2, colspan=1) # recording
-        ax2 = plt.subplot2grid((5,3), (0,1), rowspan=2, colspan=2) # crop
-        ax3 = plt.subplot2grid((5,3), (2,0), rowspan=3, colspan=3) # whole
+        ax1 = plt.subplot2grid((5,3), (0,0), rowspan=2, colspan=1)
+        ax2 = plt.subplot2grid((5,3), (0,1), rowspan=2, colspan=2)
+        ax3 = plt.subplot2grid((5,3), (2,0), rowspan=3, colspan=3)
 
         ax1.imshow(d_rec_rot, origin='lower')
+        ax1.imshow(d_rois_rot, origin='lower', cmap=plt.cm.viridis)
         ax1.scatter(roi_coords_rot[:, 1], roi_coords_rot[:, 0], color='orange', s=80)
+        ax1.set_title('Recording Region', fontsize=24)
 
         ax2.imshow(crop, origin='lower')
         h_d_rec_rot, w_d_rec_rot = d_rec_rot.shape
         rect_d_rec_rot = plt.Rectangle((d_rec_rot_y0, d_rec_rot_x0), w_d_rec_rot, h_d_rec_rot , edgecolor='r', facecolor='none', linewidth=2)
         ax2.add_patch(rect_d_rec_rot)
+        ax2.imshow(d_rois_rot_crop, origin='lower', cmap=plt.cm.viridis)
         ax2.scatter(roi_coords_crop[:, 1], roi_coords_crop[:, 0], s=80, color='orange')
+        ax2.set_title('Cropped Region', fontsize=24)
 
-        ax3.imshow(linestack.mean(2), origin='lower', cmap=plt.cm.binary_r)
+        ax3.imshow(linestack.mean(2), origin='lower', cmap=plt.cm.binary)
+        ax3.imshow(self.info_soma['mask_2d'], origin='lower', cmap=plt.cm.binary, vmin=0.0, alpha=0.3)
+
         hd, wd = crop.shape
         rect_crop = plt.Rectangle((d_stack_cy-padding, d_stack_cx-padding), wd, hd, edgecolor='r', facecolor='none', linewidth=2)
         h_d_rec_rot, w_d_rec_rot = d_rec_rot.shape
         rect_crop_d_rec = plt.Rectangle((d_rec_rot_y0 + d_stack_cy-padding, d_rec_rot_x0 + d_stack_cx-padding), w_d_rec_rot, h_d_rec_rot, edgecolor='r', facecolor='none', linewidth=2)
         ax3.add_patch(rect_crop_d_rec)
         ax3.add_patch(rect_crop)
+        ax3.imshow(d_rois_rot_stack_xy, origin='lower', cmap=plt.cm.viridis)
         ax3.scatter(roi_coords_crop[:, 1]+d_stack_cy-padding, roi_coords_crop[:, 0]+d_stack_cx-padding, s=80, color='orange')
         ax3.annotate(dname, xy=(d_rec_rot_y0 + d_stack_cy-padding-10, d_rec_rot_x0 + d_stack_cx-padding-10), color='white')
+        ax3.set_title('ROIs on Cell Morpholoy', fontsize=24)
 
-        plt.suptitle('{}: {}'.format(self.expdate, dname))
+        plt.suptitle('{}: {}'.format(self.expdate, dname), fontsize=28)
 
         plt.grid('off')
         
@@ -608,13 +621,161 @@ class TracingReg(object):
             plt.savefig(img_save_path + '/{}-{}-{}.png'.format(idx, int(rec_id), int(roi_id)))
 
 
+    #########################
+    ## ROI Receptive Field ##
+    #########################
+    def plot_RFs(self, stimulus_path, sigma=0.7, threshold=3, special_cases=None):
+
+        import sta_utils as stools
+        import scipy.ndimage as ndimage
+        import cv2
+
+        num_subplots_per_row = np.ceil(self.df_rois.index.size / 4).astype(int)
+        fig, ax = plt.subplots(num_subplots_per_row, 4, figsize=(16, 3 * num_subplots_per_row))
+
+        rf_pixel_size = 30
+        stack_pixel_size = self.stack_pixel_size
+        RF_scale = np.array([15, 20]) * (rf_pixel_size / stack_pixel_size)
+        Rx, Ry = RF_scale[0]/2, RF_scale[1]/2
+
+        df_rois = self.df_rois.copy()
+        for row in df_rois.iterrows():
+            
+            idx = row[0] # the real roi_id for all rois
+            roi_id = row[1]['roi_id'] # relative roi_id in recording
+            Sx, Sy = row[1]['recording_center']
+            left_pad = np.round(Ry - Sy).astype(int)
+            bottom_pad = np.round(Rx - Sx).astype(int)
+
+            RF = stools.extract_sta_rois(df_rois, idx, stimulus_path)
+            RF = np.fliplr(RF)
+
+            if special_cases != None and idx in special_cases.keys():
+                # print('ROI id: {}, sigma: {}, threshold: {}'.format(idx, special_cases[idx]['sigma'], special_cases[idx]['threshold']))
+                RF = ndimage.gaussian_filter(RF, sigma=(special_cases[idx]['sigma'], special_cases[idx]['sigma']), order=0)
+                (cntr_x, cntr_y), RF = stools.get_contour(RF=RF, threshold=special_cases[idx]['threshold'], sigma=(0,0))
+            else:
+                # print('ROI id: {}, sigma: {}, threshold: {}'.format(idx, sigma, threshold))
+                RF = ndimage.gaussian_filter(RF, sigma=(sigma, sigma), order=0)
+                (cntr_x, cntr_y), RF = stools.get_contour(RF=RF, threshold=threshold, sigma=(0,0))
+            
+            
+            RF_size = cv2.contourArea(np.vstack([cntr_x, cntr_y]).T.astype(np.float32)) * 0.9
+
+            ax[np.floor(idx/4).astype(int), (idx % 4).astype(int)].imshow(RF)
+            ax[np.floor(idx/4).astype(int), (idx % 4).astype(int)].axis('off')
+            ax[np.floor(idx/4).astype(int), (idx % 4).astype(int)].plot(cntr_y, cntr_x, color='white')
+            ax[np.floor(idx/4).astype(int), (idx % 4).astype(int)].set_title('ROI {}  ({} $x 10^3$ $um^2$)'.format(idx, round(RF_size, 2)), fontsize=10)
+
+        num_RF = self.df_rois.index.size
+        num_subplots = round(self.df_rois.index.size / 4) *  4
+        if num_RF != num_subplots:
+            for residul in range(1, num_subplots - num_RF+1):
+                ax[np.floor(idx/4).astype(int), (idx % 4).astype(int) + residul].axes.get_xaxis().set_visible(False)
+                ax[np.floor(idx/4).astype(int), (idx % 4).astype(int) + residul].axes.get_yaxis().set_visible(False)
+                ax[np.floor(idx/4).astype(int), (idx % 4).astype(int) + residul].axis('off')
+        
+        plt.suptitle('{}'.format(self.expdate), fontsize=28)
+
+    def plot_contours(self, stimulus_path, exception=[], sigma=0.7, threshold=3, special_cases=None):
+        import sta_utils as stools
+        import scipy.ndimage as ndimage
+        from matplotlib_scalebar.scalebar import ScaleBar
+        import cv2
+
+        rf_pixel_size = 30
+        stack_pixel_size = self.stack_pixel_size
+        RF_scale = np.array([15, 20]) * (rf_pixel_size / stack_pixel_size)
+        Rx, Ry = RF_scale[0]/2, RF_scale[1]/2
+
+        roi_rf_cntr = {}
+        roi_rf_size = {}
+        df_rois = self.df_rois.copy()
+
+        color_arg = np.floor((df_rois.distance_dendritic / df_rois.distance_dendritic.max()) * 250)
+        color_palletes = np.array(plt.cm.viridis.colors)
+
+        linestack_xy = self.linestack.mean(2)
+
+        linestack_xy[linestack_xy != 0] = 1
+        linestack_xy = np.pad(linestack_xy, ((0,55), (0,0)), 'constant')
+
+        plt.figure(figsize=(16,16))
+        plt.imshow(linestack_xy, origin='lower')
+        plt.imshow(self.info_soma['mask_2d'], origin='lower', cmap=plt.cm.binary, vmin=0.0, alpha=0.3)
+
+        rois_pos = np.vstack(df_rois.roi_coords)
+        rois_dis = df_rois.distance_dendritic.values
+        
+        sc = plt.scatter(rois_pos[:, 1], rois_pos[:, 0], c=rois_dis, s=180, cmap=plt.cm.viridis)
+        
+        scalebar = ScaleBar(self.stack_pixel_size, units='um', location='upper left', box_alpha=0, pad=4)
+        plt.gca().add_artist(scalebar)
+        plt.autoscale(True)
+
+
+        roi_rf_cntr = {}
+        roi_rf_size = {}
+        for row in df_rois.iterrows():
+            
+            idx = row[0]
+            roi_id = row[1]['roi_id']
+            Sx, Sy = row[1]['recording_center']
+            left_pad = np.round(Ry - Sy).astype(int)
+            bottom_pad = np.round(Rx - Sx).astype(int)
+
+            RF = stools.extract_sta_rois(df_rois, idx, stimulus_path)
+            RF = np.fliplr(RF)
+            if special_cases != None and idx in special_cases.keys():
+                # print('ROI id: {}, sigma: {}, threshold: {}'.format(idx, special_cases[idx]['sigma'], special_cases[idx]['threshold']))
+                RF = ndimage.gaussian_filter(RF, sigma=(special_cases[idx]['sigma'], special_cases[idx]['sigma']), order=0)
+                (cntr_x, cntr_y), RF = stools.get_contour(RF=RF, threshold=special_cases[idx]['threshold'], sigma=(0,0))
+            else:
+                # print('ROI id: {}, sigma: {}, threshold: {}'.format(idx, sigma, threshold))
+                RF = ndimage.gaussian_filter(RF, sigma=(sigma, sigma), order=0)
+                (cntr_x, cntr_y), RF = stools.get_contour(RF=RF, threshold=threshold, sigma=(0,0))
+            
+            cntr_x *= rf_pixel_size/self.stack_pixel_size
+            cntr_y *= rf_pixel_size/self.stack_pixel_size   
+            
+            
+            if idx in exception:
+                roi_rf_size[idx] = np.nan
+                roi_rf_cntr[idx] = np.nan
+
+            else:
+                RF_size = cv2.contourArea(np.vstack([cntr_x, cntr_y]).T.astype(np.float32)) * (self.stack_pixel_size * self.stack_pixel_size)/1000
+                plt.plot(cntr_y-left_pad, cntr_x-bottom_pad, color=color_palletes[color_arg[idx].astype(int)])
+            
+                roi_rf_size[idx] = RF_size
+                roi_rf_cntr[idx] = np.vstack([cntr_x-bottom_pad, cntr_y-left_pad]).T
+
+            plt.axis('off')
+
+        cbar = plt.colorbar(sc, fraction=0.02, pad=-.001 )
+        cbar.outline.set_visible(False)
+
+        df_rois['RF_size'] = pd.Series(roi_rf_size)
+        df_rois['RF_contour'] = pd.Series(roi_rf_cntr)
+
+        self.df_rois = df_rois.copy()
+
+
+    ###############
+    ## ROI Pairs ##
+    ###############
+
     def get_roipairs(self):
 
         df_roipairs = pd.DataFrame(columns=('pair_id',
+                                        'average_dendritic_distance_to_soma',
+                                        'average_radial_distance_to_soma',
                                         'segments_between',
                                         'branchpoints_between',
                                         'dendritic_distance_between',
-                                        'num_branchpoints',
+                                        'radial_distance_between',
+                                        'angle_between',
+                                        'num_branchpoints_between',
                                         'overlap_contour',
                                         'overlap_RFsize',
                                         'smaller_RFsize',
@@ -631,31 +792,90 @@ class TracingReg(object):
 
             for roi_id1 in indices:
                 
+
                 print('Processing pair ({} {})...'.format(roi_id0, roi_id1))
+                
+                ''' START: pair dendritic distance and branchpoints '''
+                
                 sms_between, bpts_between = get_info_roi2roi(self.df_trace, self.df_paths, self.df_rois, self.info_soma, roi_id0, roi_id1)
                 
                 sm_length = 0
                 for sm in sms_between:
                     sm_length += np.sum(np.sqrt(np.sum((sm[1:] - sm[:-1])**2, 1))) * self.stack_pixel_size
 
+                ''' END: pair dendritic distance and branchpoints '''
 
+                
+                ''' START: pair angle '''
+                
+                angle_deg_between = get_angle_roi2roi(self.df_rois, self.info_soma, roi_id0, roi_id1, dim=2)
+                
+                ''' END: pair angle'''
+
+                ''' START: radial distance between two rois '''
+                
+                radial_distance_between = np.sqrt(np.sum((self.df_rois.loc[roi_id0].roi_coords - self.df_rois.loc[roi_id1].roi_coords) ** 2)) * self.stack_pixel_size
+
+                ''' END: radial distance between two rois '''
+
+
+                ''' START: contours overlap  '''
                 cntr0 = self.df_rois.loc[roi_id0].RF_contour
                 cntr1 = self.df_rois.loc[roi_id1].RF_contour
-                num_intp = 100
-                overlap_cntr, RFsizes = get_inner_cntr(cntr0, cntr1, num_intp, self.stack_pixel_size)
-                overlap_RFsize = RFsizes['overlap_size']
-                smaller_RFsize = RFsizes['smaller_size']
-                overlap_index = overlap_RFsize/smaller_RFsize
 
-                df_roipairs.loc[i] = [set([roi_id0, roi_id1]), 
-                                        sms_between, 
-                                        bpts_between, 
-                                        sm_length, 
-                                        len(bpts_between), 
-                                        overlap_cntr,
-                                        overlap_RFsize,
-                                        smaller_RFsize,
-                                        overlap_index]
+                if np.isnan(cntr0).any() or np.isnan(cntr1).any():
+                    
+                    overlap_RFsize = 0
+                    overlap_index = 0
+
+                    if np.isnan(cntr0).any():
+                        smaller_RFsize = self.df_rois.loc[roi_id1].RF_size
+                    elif np.isnan(cntr1).any():
+                        smaller_RFsize = self.df_rois.loc[roi_id0].RF_size
+                    else:
+                        smaller_RFsize = np.nan
+
+                else: 
+
+                    num_intp = 100
+                    overlap_cntr, RFsizes = get_inner_cntr(cntr0, cntr1, num_intp, self.stack_pixel_size)
+                    overlap_RFsize = RFsizes['overlap_size']
+                    smaller_RFsize = RFsizes['smaller_size']
+                    overlap_index = overlap_RFsize/smaller_RFsize
+
+                ''' END: contours overlap  '''
+
+                
+                '''START: average radial distance'''
+
+                radial_distance_roi0 = self.df_rois.loc[roi_id0].distance_radial
+                radial_distance_roi1 = self.df_rois.loc[roi_id1].distance_radial
+                average_radial_distance = np.mean(radial_distance_roi0 + radial_distance_roi1)
+
+                '''END: average radial distance'''
+
+                
+                '''START: average dendritic distance'''
+
+                dendritic_distance_roi0 = self.df_rois.loc[roi_id0].distance_dendritic
+                dendritic_distance_roi1 = self.df_rois.loc[roi_id1].distance_dendritic
+                average_dendritic_distance = np.mean(dendritic_distance_roi0 + dendritic_distance_roi1)
+                
+                '''END: average dendritic distance'''
+
+                df_roipairs.loc[i] = [set([roi_id0, roi_id1]),      # pair_id
+                                        average_radial_distance,    # average_radial_distance_to_soma
+                                        average_dendritic_distance, # average_dendritic_distance_to_soma
+                                        sms_between,                # segments_between
+                                        bpts_between,               # branchpoints_between
+                                        sm_length,                  # dendritic_distance_between
+                                        radial_distance_between,    # radial_distance_between
+                                        angle_deg_between,          # angle_between
+                                        len(bpts_between),          # num_branchpoints_between
+                                        overlap_cntr,               # overlap_contour
+                                        overlap_RFsize,             # overlap_RFsize
+                                        smaller_RFsize,             # smaller_RFsize
+                                        overlap_index]              # overlap_index
                 i+= 1
 
         print('Done!')
@@ -707,7 +927,29 @@ class TracingReg(object):
 
                 idx += 1
 
+    def plot_RF_offset(self):
+
+        for roi_idd in range(0, t.df_rois.index.max()+1):
+            roi_loc = t.df_rois.loc[roi_idd].roi_coords
+            RF_loc  = t.df_rois.loc[roi_idd].RF_contour.mean(0)
+            doffset = RF_loc - roi_loc[:2]
+        #     plt.plot(t.df_rois.loc[roi_idd].RF_contour[:, 1], t.df_rois.loc[roi_idd].RF_contour[:, 0])
+        #     plt.scatter(RF_loc[1], RF_loc[0], s=280, color='red')
+        #     plt.scatter(roi_loc[1], roi_loc[0], s=280, color='orange')
+            plt.arrow(roi_loc[1], roi_loc[0], doffset[1], doffset[0], fc='k', ec='k', width=1, head_width=5, head_length=5)
+
     def get_df_branchpoints(self):
 
         self.df_branchpoints = get_df_branchpoints(self.df_trace, self.df_rois, self.df_paths, self.stack_pixel_size, self.info_soma)
 
+class MorphStat(object):
+
+    def __init__(self, meta_exp):
+
+        experimenter = meta_exp['experimenter']
+        expdate = meta_exp['expdate']
+        self.experimenter = experimenter
+        self.expdate = expdate
+        self.data_paths, self.celldir, self.exp_num = get_data_paths(experimenter, expdate)
+
+        trace_path = self.data_paths['trace_path']

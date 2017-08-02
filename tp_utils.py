@@ -790,7 +790,7 @@ def get_inner_cntr(cntr0, cntr1, n, stack_pixel_size):
             for idx_pair_of_points in range(points_to_delete.shape[0]):
                 start_point = points_to_delete[idx_pair_of_points][0] + 1
                 end_point = points_to_delete[idx_pair_of_points][1] + 1
-                print(start_point, end_point)
+                # print(start_point, end_point)
 
                 if len(range(start_point,end_point))>20:
                     overlap_cntr = np.delete(overlap_cntr, [start_point,end_point], axis=0)
@@ -828,3 +828,24 @@ def get_inner_cntr(cntr0, cntr1, n, stack_pixel_size):
                           'bigger_size': bigger_size,
                           'smaller_size': smaller_size}
         
+##########################################
+## calculate the angle between two rois ##
+##########################################
+
+def get_angle_roi2roi(df_rois, info_soma, roi_id0, roi_id1, dim=2):
+    
+    if dim == 2:
+        v0 = df_rois.loc[roi_id0].roi_coords_stack_xy - info_soma['centroid'][:2]
+        v1 = df_rois.loc[roi_id1].roi_coords_stack_xy - info_soma['centroid'][:2]
+    
+    elif dim == 3:
+
+        v0 = df_rois.loc[roi_id0].roi_coords - info_soma['centroid']
+        v1 = df_rois.loc[roi_id1].roi_coords - info_soma['centroid']
+        
+    c =  v0 @ v1 / np.linalg.norm(v0) / np.linalg.norm(v1)
+    
+    deg = np.degrees((np.arccos(np.clip(c, -1.0, 1))))
+    
+    return deg
+
