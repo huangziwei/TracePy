@@ -42,6 +42,14 @@ def get_data_paths(experimenter, expdate):
         if ('_s_d' in file.lower()):
             soma_h5_path = celldir + '/Pre/' + file
 
+    try:
+        soma_h5_path
+    except NameError:
+        print("There's no SMP_CX_S_DnoiseGC30.h5, try using SMP_CX_S_Chirp.h5")
+        for file in os.listdir(celldir + '/Pre'):
+            if ('_s_c' in file.lower()):
+                soma_h5_path = celldir + '/Pre/' + file
+
     dendrites_h5_paths = []
     for file in os.listdir(celldir + '/Pre'):
         if ('_d' in file.lower() and 'chirp' not in file.lower() and 's_d' not in file.lower()):
@@ -201,13 +209,23 @@ def get_info_soma(stack, adjust_factor=1):
 
     mask_3d = np.logical_and(ballvolume, bimg)
 
-    soma_to_be_masked = mask_3d.mean(2)
-    soma_to_be_masked[soma_to_be_masked !=0] = 1
-    mask_2d = np.ma.masked_array(soma_to_be_masked, ~mask_3d.any(2))
+    mask_xy = mask_3d.sum(2)
+    mask_xy[mask_xy !=0] = 1
+    mask_xy = np.ma.masked_array(mask_xy, ~mask_3d.any(2))
+    
+    mask_xz = mask_3d.sum(1)
+    mask_xz[mask_xz !=0] = 1
+    mask_xz = np.ma.masked_array(mask_xz, ~mask_3d.any(1))
+    
+    mask_yz = mask_3d.sum(0)
+    mask_yz[mask_yz !=0] = 1
+    mask_yz = np.ma.masked_array(mask_yz, ~mask_3d.any(0))
     
     soma = {'centroid': centroid, 
             'radius': radius, 
-            'mask_2d': mask_2d,
+            'mask_xy': mask_xy,
+            'mask_xz': mask_xz,
+            'mask_yz': mask_yz,
             'mask_3d': mask_3d}
 
     return soma
@@ -275,15 +293,30 @@ def resize_rec(rec, stack):
     
     return scipy.misc.imresize(reci, size=get_scale_factor(rec, stack), interp='nearest')
 
-def rotate_rec(rec, stack):
+def rotate_rec(rec, stack,angle_adjust=0):
     
-    ang_deg = rec['wParamsNum'][31] # ratoate angle (degree)
+    ang_deg = rec['wParamsNum'][31] + angle_adjust# ratoate angle (degree)
     ang_rad = ang_deg * np.pi / 180 # ratoate angle (radian)
     
     rec_rec = resize_rec(rec, stack)
     rec_rot = scipy.ndimage.interpolation.rotate(rec_rec, ang_deg)
     
-    return rec_rot
+    (shift_x, shift_y) = 0.5 * (np.array(rec_rot.shape) - np.array(rec_rec.shape))
+    (cx, cy) = 0.5 * np.array(rec_rec.shape)
+    
+    px, py = (0, 0) # origin
+    px -= cx
+    py -= cy
+    
+    xn = px * np.cos(ang_rad) - py*np.sin(ang_rad)
+    yn = px * np.sin(ang_rad) + py*np.cos(ang_rad)
+    
+    xn += (cx + shift_x)
+    yn += (cy + shift_y)    
+    
+    # the shifted origin after rotation
+    
+    return rec_rot, (xn, yn)
 
 def rec_preprop(rec):
     
@@ -292,9 +325,9 @@ def rec_preprop(rec):
     
     return reci
 
-def rotate_roi(rec, stack):
+def rotate_roi(rec, stack, angle_adjust=0):
     
-    ang_deg = rec['wParamsNum'][31] # ratoate angle (degree)
+    ang_deg = rec['wParamsNum'][31] + angle_adjust # ratoate angle (degree)
     ang_rad = ang_deg * np.pi / 180 # ratoate angle (radian)
     
     rec_rois = resize_roi(rec, stack)
@@ -849,3 +882,110 @@ def get_angle_roi2roi(df_rois, info_soma, roi_id0, roi_id1, dim=2):
     
     return deg
 
+
+###########################
+## RF quality: Moran's I ##
+###########################
+
+def MoransI(M):
+    
+    ndims = M.shape
+    M = M.flatten()
+    
+    import numpy as np
+
+    def adjacency_matrix(ndims):
+        
+        n, m = ndims  
+        
+        xes = np.zeros([n, m])
+        yes = np.zeros([n, m])
+        for x in range(n):
+            for y in range(m):
+                xes[x, y] = x
+                yes[x, y] = y
+        xes = xes.flatten()
+        yes = yes.flatten()
+        
+        adjM = np.zeros([n*m,n*m])   
+        for i in range(n):
+            xdiff = i - xes
+            for j in range(m):
+                ydiff = j - yes
+                diff = np.sqrt(xdiff**2 + ydiff**2)
+                diff[diff > 1] =0
+                adjM[i*m + j] = diff
+                
+        return adjM 
+        
+    
+    w = adjacency_matrix(ndims)
+
+    mbar = np.mean(M)
+
+    P1 = 0
+    P2 = 0
+    P3 = 0
+    for i in range(ndims[0]*ndims[1]):
+        for j in range(ndims[0]*ndims[1]):
+            P1 += (w[i,j] * (M[i] - mbar) * (M[j] - mbar))
+            P2 += w[i,j]
+        P3 += (M[i] - mbar)**2
+
+    P4 = ndims[0]*ndims[1] / P2
+    I = P4 * P1 / P3
+    
+    return I
+
+##################################
+## RF quality: noise esitmation ##
+##################################
+
+def estimate_noise(I):
+    from scipy.signal import convolve2d
+
+    H, W = I.shape
+
+    M = [[1, -2, 1],
+       [-2, 4, -2],
+       [1, -2, 1]]
+
+    sigma = np.sum(np.sum(np.absolute(convolve2d(I, M))))
+    sigma = sigma * np.sqrt(0.5 * np.pi) / (6 * (W-2) * (H-2))
+
+    return sigma
+
+
+#########################################
+## RF quality: correlation coefficient ##
+#########################################
+
+def spectral_corrcoef(I):
+
+    import numpy
+    def get_grids(N_X, N_Y):
+        from numpy import mgrid
+        return mgrid[-1:1:1j*N_X, -1:1:1j*N_Y]
+
+    def frequency_radius(fx, fy):
+        R2 = fx**2 + fy**2
+        (N_X, N_Y) = fx.shape
+        R2[N_X/2, N_Y/2]= numpy.inf
+
+        return numpy.sqrt(R2)
+
+    def enveloppe_color(fx, fy, alpha=1.0):
+        # 0.0, 0.5, 1.0, 2.0 are resp. white, pink, red, brown noise
+        # (see http://en.wikipedia.org/wiki/1/f_noise )
+        # enveloppe
+        return 1. / frequency_radius(fx, fy)**alpha #
+
+    import scipy
+    N_X, N_Y = I.shape
+    fx, fy = get_grids(N_X, N_Y)
+    pink_spectrum = enveloppe_color(fx, fy)
+
+    from scipy.fftpack import fft2
+    power_spectrum = numpy.abs(fft2(image))**2
+
+    return power_spectrum
